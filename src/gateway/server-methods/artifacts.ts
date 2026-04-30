@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { getTaskById } from "../../tasks/task-registry.js";
 import {
   ErrorCodes,
   errorShape,
@@ -133,7 +134,12 @@ function resolveMessageRunId(message: Record<string, unknown>): string | undefin
 
 function resolveMessageTaskId(message: Record<string, unknown>): string | undefined {
   const meta = asRecord(message.__openclaw);
-  return asNonEmptyString(meta?.taskId) ?? asNonEmptyString(message.taskId);
+  return (
+    asNonEmptyString(meta?.messageTaskId) ??
+    asNonEmptyString(meta?.taskId) ??
+    asNonEmptyString(message.messageTaskId) ??
+    asNonEmptyString(message.taskId)
+  );
 }
 
 function resolveBlockDownload(block: Record<string, unknown>): {
@@ -272,7 +278,13 @@ function resolveQuerySessionKey(query: ArtifactQuery): string | undefined {
     return resolveSessionKeyForRun(query.runId);
   }
   if (query.taskId) {
-    return resolveSessionKeyForRun(query.taskId);
+    const task = getTaskById(query.taskId);
+    const requesterSessionKey = asNonEmptyString(task?.requesterSessionKey);
+    if (requesterSessionKey) {
+      return requesterSessionKey;
+    }
+    const runId = asNonEmptyString(task?.runId);
+    return runId ? resolveSessionKeyForRun(runId) : undefined;
   }
   return undefined;
 }

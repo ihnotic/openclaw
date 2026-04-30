@@ -2,9 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { artifactsHandlers, collectArtifactsFromMessages } from "./artifacts.js";
 
 const hoisted = vi.hoisted(() => ({
+  getTaskById: vi.fn(),
   loadSessionEntry: vi.fn(),
   readSessionMessages: vi.fn(),
   resolveSessionKeyForRun: vi.fn(),
+}));
+
+vi.mock("../../tasks/task-registry.js", () => ({
+  getTaskById: hoisted.getTaskById,
 }));
 
 vi.mock("../session-utils.js", async () => {
@@ -39,6 +44,7 @@ function createResponder() {
 describe("artifacts RPC handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    hoisted.getTaskById.mockReturnValue(undefined);
     hoisted.loadSessionEntry.mockReturnValue({
       storePath: "/tmp/sessions.json",
       entry: { sessionId: "sess-main", sessionFile: "/tmp/sess-main.jsonl" },
@@ -155,18 +161,22 @@ describe("artifacts RPC handlers", () => {
     expect(payload.artifacts?.[0]).toMatchObject({ runId: "run-1" });
   });
 
-  it("resolves taskId queries through session lookup and filters artifacts by messageTaskId", async () => {
-    hoisted.loadSessionEntry.mockReturnValue({ sessionKey: "agent:main:main" });
+  it("resolves taskId queries through the task registry and filters artifacts by messageTaskId", async () => {
+    hoisted.getTaskById.mockReturnValue({
+      taskId: "task-1",
+      requesterSessionKey: "agent:main:main",
+      runId: "run-for-task-1",
+    });
     hoisted.readSessionMessages.mockReturnValue([
       {
         role: "assistant",
         content: [{ type: "image", data: "dGFyZ2V0", alt: "task-result.png" }],
-        __openclaw: { seq: 2, taskId: "task-1", messageTaskId: "task-1" },
+        __openclaw: { seq: 2, messageTaskId: "task-1" },
       },
       {
         role: "assistant",
         content: [{ type: "image", data: "b3RoZXI=", alt: "other-task.png" }],
-        __openclaw: { seq: 3, taskId: "task-2", messageTaskId: "task-2" },
+        __openclaw: { seq: 3, messageTaskId: "task-2" },
       },
       {
         role: "assistant",
@@ -186,12 +196,14 @@ describe("artifacts RPC handlers", () => {
     });
 
     expect(list.calls[0]?.ok).toBe(true);
-    expect(hoisted.loadSessionEntry).toHaveBeenCalledWith("task-1");
+    expect(hoisted.getTaskById).toHaveBeenCalledWith("task-1");
+    expect(hoisted.resolveSessionKeyForRun).not.toHaveBeenCalled();
+    expect(hoisted.loadSessionEntry).toHaveBeenCalledWith("agent:main:main");
     const listPayload = list.calls[0]?.payload as { artifacts?: Array<Record<string, unknown>> };
     expect(listPayload.artifacts).toHaveLength(1);
     expect(listPayload.artifacts?.[0]).toMatchObject({
       taskId: "task-1",
-      label: "task-result.png",
+      title: "task-result.png",
     });
 
     const artifactId = listPayload.artifacts?.[0]?.id as string | undefined;
@@ -208,7 +220,7 @@ describe("artifacts RPC handlers", () => {
     });
     expect(get.calls[0]?.ok).toBe(true);
     expect(get.calls[0]?.payload).toMatchObject({
-      artifact: { id: artifactId, taskId: "task-1", label: "task-result.png" },
+      artifact: { id: artifactId, taskId: "task-1", title: "task-result.png" },
     });
 
     const download = createResponder();
@@ -224,7 +236,7 @@ describe("artifacts RPC handlers", () => {
     expect(download.calls[0]?.payload).toMatchObject({
       encoding: "base64",
       data: "dGFyZ2V0",
-      artifact: { id: artifactId, taskId: "task-1", label: "task-result.png" },
+      artifact: { id: artifactId, taskId: "task-1", title: "task-result.png" },
     });
   });
 
