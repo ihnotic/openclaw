@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { getTaskById } from "../../tasks/task-registry.js";
+import { getTaskSessionLookupByIdForStatus } from "../../tasks/task-status-access.js";
 import {
   ErrorCodes,
   errorShape,
@@ -278,7 +278,7 @@ function resolveQuerySessionKey(query: ArtifactQuery): string | undefined {
     return resolveSessionKeyForRun(query.runId);
   }
   if (query.taskId) {
-    const task = getTaskById(query.taskId);
+    const task = getTaskSessionLookupByIdForStatus(query.taskId);
     const requesterSessionKey = asNonEmptyString(task?.requesterSessionKey);
     if (requesterSessionKey) {
       return requesterSessionKey;
