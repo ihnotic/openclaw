@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -252,6 +251,7 @@ import {
   buildLoopPromptCacheInfo,
   buildContextEnginePromptCacheInfo,
   findCurrentAttemptAssistantMessage,
+  findPreviousAssistantBeforeTurn,
   finalizeAttemptContextEngineTurn,
   resolvePromptCacheTouchTimestamp,
   resolveAttemptBootstrapContext,
@@ -3076,10 +3076,10 @@ export async function runEmbeddedAttempt(
           .slice()
           .toReversed()
           .find((m) => m.role === "assistant");
-        previousAssistantBeforeTurn = messagesSnapshot
-          .slice(0, Math.max(0, firstPromptMessageCount ?? prePromptMessageCount))
-          .toReversed()
-          .find((message): message is AssistantMessage => message.role === "assistant");
+        previousAssistantBeforeTurn = findPreviousAssistantBeforeTurn({
+          messagesSnapshot,
+          prePromptMessageCount: firstPromptMessageCount ?? prePromptMessageCount,
+        });
         currentAttemptAssistant = findCurrentAttemptAssistantMessage({
           messagesSnapshot,
           prePromptMessageCount,

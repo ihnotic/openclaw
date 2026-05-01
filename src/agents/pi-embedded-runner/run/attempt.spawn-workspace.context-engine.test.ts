@@ -14,6 +14,7 @@ import {
   assembleAttemptContextEngine,
   buildContextEnginePromptCacheInfo,
   findCurrentAttemptAssistantMessage,
+  findPreviousAssistantBeforeTurn,
   finalizeAttemptContextEngineTurn,
   resolvePromptCacheTouchTimestamp,
   runAttemptContextEngineBootstrap,
@@ -656,6 +657,62 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
 
     expect(currentAttemptAssistant).toBeUndefined();
     expect(promptCache).toEqual({ retention: "short" });
+  });
+
+  it("finds the visible assistant before a user turn across post-tool prompt loops", () => {
+    const priorAssistant = {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "prior final answer",
+          textSignature: JSON.stringify({ v: 1, id: "prior_final", phase: "final_answer" }),
+        },
+      ],
+    } as unknown as AgentMessage;
+    const userMessage = { role: "user", content: "current question" } as unknown as AgentMessage;
+    const toolUseAssistant = {
+      role: "assistant",
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", name: "exec", id: "call_1", arguments: {} }],
+    } as unknown as AgentMessage;
+    const toolResult = {
+      role: "toolResult",
+      toolCallId: "call_1",
+      content: [{ type: "text", text: "current tool answer" }],
+    } as unknown as AgentMessage;
+    const currentAssistant = {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "current tool answer",
+          textSignature: JSON.stringify({
+            v: 1,
+            id: "current_commentary",
+            phase: "commentary",
+          }),
+        },
+        {
+          type: "text",
+          text: "prior final answer",
+          textSignature: JSON.stringify({ v: 1, id: "current_final", phase: "final_answer" }),
+        },
+      ],
+    } as unknown as AgentMessage;
+
+    expect(
+      findPreviousAssistantBeforeTurn({
+        messagesSnapshot: [
+          priorAssistant,
+          userMessage,
+          toolUseAssistant,
+          toolResult,
+          currentAssistant,
+        ],
+        prePromptMessageCount: 4,
+      }),
+    ).toBe(priorAssistant);
   });
 
   it("derives live loop prompt-cache info from the current attempt assistant", () => {
