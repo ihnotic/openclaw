@@ -89,6 +89,47 @@ test("sessions.reset rewrites default transcript files to the new session id", a
   await expect(fs.stat(newSessionFile as string)).resolves.toBeTruthy();
 });
 
+test("sessions.reset repairs mismatched default UUID transcript files", async () => {
+  const { storePath } = await createSessionStoreDir();
+  testState.agentConfig = {
+    model: {
+      primary: "openai/gpt-test-a",
+    },
+  };
+  const sessionsDir = await fs.realpath(path.dirname(storePath));
+  const currentSessionId = "d2b274c7-1759-474d-bb6b-bad3d88a5172";
+  const staleFileSessionId = "e21b2a10-f608-4ddf-b1bc-f30bb662138a";
+  const staleSessionFile = path.join(sessionsDir, `${staleFileSessionId}.jsonl`);
+  await fs.writeFile(staleSessionFile, `${JSON.stringify({ role: "user", content: "stale" })}\n`);
+
+  await writeSessionStore({
+    entries: {
+      main: sessionStoreEntry(currentSessionId, {
+        sessionFile: staleSessionFile,
+      }),
+    },
+  });
+
+  const reset = await directSessionReq<{
+    ok: true;
+    entry: {
+      sessionId: string;
+      sessionFile?: string;
+    };
+  }>("sessions.reset", { key: "main" });
+
+  expect(reset.ok).toBe(true);
+  const newSessionId = reset.payload?.entry.sessionId;
+  const newSessionFile = reset.payload?.entry.sessionFile;
+  expect(newSessionId).toBeTruthy();
+  expect(newSessionId).not.toBe(currentSessionId);
+  expect(newSessionId).not.toBe(staleFileSessionId);
+  expect(newSessionFile).toBeTruthy();
+  expect(newSessionFile).not.toBe(staleSessionFile);
+  expect(path.basename(newSessionFile as string)).toBe(`${newSessionId}.jsonl`);
+  await expect(fs.stat(newSessionFile as string)).resolves.toBeTruthy();
+});
+
 test("sessions.reset preserves legacy explicit model overrides without modelOverrideSource", async () => {
   const { storePath } = await createSessionStoreDir();
   testState.agentConfig = {
