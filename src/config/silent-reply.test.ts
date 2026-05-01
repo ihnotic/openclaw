@@ -71,7 +71,7 @@ describe("silent reply config resolution", () => {
   });
 
   it("resolves rewrite defaults and surface overrides by conversation type", () => {
-    expect(resolveSilentReplyRewriteEnabled({ surface: "webchat" })).toBe(true);
+    expect(resolveSilentReplyRewriteEnabled({ surface: "webchat" })).toBe(false);
     expect(
       resolveSilentReplyRewriteEnabled({
         sessionKey: "agent:main:telegram:group:123",
