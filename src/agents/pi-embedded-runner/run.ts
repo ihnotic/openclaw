@@ -2011,13 +2011,13 @@ export async function runEmbeddedPiAgent(
           const assistantForFinalPayload = resolveAssistantForFinalPayload({
             currentAttemptAssistant,
             sessionLastAssistant,
-            previousAssistantBeforeCurrentPrompt: attempt.previousAssistantBeforeCurrentPrompt,
+            previousAssistantBeforeTurn: attempt.previousAssistantBeforeTurn,
             replayInvalid,
           });
           const assistantTextsForFinalPayload = resolveAssistantTextsForFinalPayload({
             assistantTexts: attempt.assistantTexts,
             currentAttemptAssistant,
-            previousAssistantBeforeCurrentPrompt: attempt.previousAssistantBeforeCurrentPrompt,
+            previousAssistantBeforeTurn: attempt.previousAssistantBeforeTurn,
             finalPromptText: attempt.finalPromptText,
             replayInvalid,
           });

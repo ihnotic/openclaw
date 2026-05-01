@@ -229,16 +229,14 @@ function hasCurrentPromptAnchor(params: {
 
 function resolveStaleReplayFinalText(params: {
   currentAttemptAssistant?: AssistantMessage | undefined;
-  previousAssistantBeforeCurrentPrompt?: AssistantMessage | undefined;
+  previousAssistantBeforeTurn?: AssistantMessage | undefined;
   replayInvalid?: boolean;
 }): string | undefined {
   if (!params.replayInvalid || !params.currentAttemptAssistant) {
     return undefined;
   }
   const currentFinal = resolveFinalAssistantVisibleText(params.currentAttemptAssistant);
-  const previousFinal = resolveFinalAssistantVisibleText(
-    params.previousAssistantBeforeCurrentPrompt,
-  );
+  const previousFinal = resolveFinalAssistantVisibleText(params.previousAssistantBeforeTurn);
   const normalizedCurrent = normalizeComparableReplyText(currentFinal);
   const normalizedPrevious = normalizeComparableReplyText(previousFinal);
   if (!normalizedCurrent || !normalizedPrevious || normalizedCurrent !== normalizedPrevious) {
@@ -250,7 +248,7 @@ function resolveStaleReplayFinalText(params: {
 export function resolveAssistantForFinalPayload(params: {
   currentAttemptAssistant?: AssistantMessage | undefined;
   sessionLastAssistant?: AssistantMessage | undefined;
-  previousAssistantBeforeCurrentPrompt?: AssistantMessage | undefined;
+  previousAssistantBeforeTurn?: AssistantMessage | undefined;
   replayInvalid?: boolean;
 }): AssistantMessage | undefined {
   if (params.currentAttemptAssistant) {
@@ -265,7 +263,7 @@ export function resolveAssistantForFinalPayload(params: {
 export function resolveAssistantTextsForFinalPayload(params: {
   assistantTexts: string[];
   currentAttemptAssistant?: AssistantMessage | undefined;
-  previousAssistantBeforeCurrentPrompt?: AssistantMessage | undefined;
+  previousAssistantBeforeTurn?: AssistantMessage | undefined;
   finalPromptText?: string | undefined;
   replayInvalid?: boolean;
 }): string[] {

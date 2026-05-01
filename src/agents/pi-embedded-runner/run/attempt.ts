@@ -1520,6 +1520,7 @@ export async function runEmbeddedAttempt(
           await baseConvertToLlm(normalizeMessagesForLlmBoundary(messages));
       }
       let prePromptMessageCount = activeSession.messages.length;
+      let firstPromptMessageCount: number | undefined;
       let unwindowedContextEngineMessagesForPrecheck: AgentMessage[] | undefined;
       abortSessionForYield = () => {
         yieldAbortSettled = Promise.resolve(activeSession.abort());
@@ -2272,7 +2273,7 @@ export async function runEmbeddedAttempt(
       };
       let lastAssistant: AgentMessage | undefined;
       let currentAttemptAssistant: EmbeddedRunAttemptResult["currentAttemptAssistant"];
-      let previousAssistantBeforeCurrentPrompt: EmbeddedRunAttemptResult["previousAssistantBeforeCurrentPrompt"];
+      let previousAssistantBeforeTurn: EmbeddedRunAttemptResult["previousAssistantBeforeTurn"];
       let attemptUsage: NormalizedUsage | undefined;
       let cacheBreak: ReturnType<typeof completePromptCacheObservation> = null;
       let promptCache: EmbeddedRunAttemptResult["promptCache"];
@@ -2644,6 +2645,7 @@ export async function runEmbeddedAttempt(
             activeSession.agent.state.messages = filteredMessages;
           }
           prePromptMessageCount = activeSession.messages.length;
+          firstPromptMessageCount ??= prePromptMessageCount;
 
           const promptSubmission = resolveRuntimeContextPromptParts({
             effectivePrompt,
@@ -3074,8 +3076,8 @@ export async function runEmbeddedAttempt(
           .slice()
           .toReversed()
           .find((m) => m.role === "assistant");
-        previousAssistantBeforeCurrentPrompt = messagesSnapshot
-          .slice(0, Math.max(0, prePromptMessageCount))
+        previousAssistantBeforeTurn = messagesSnapshot
+          .slice(0, Math.max(0, firstPromptMessageCount ?? prePromptMessageCount))
           .toReversed()
           .find((message): message is AssistantMessage => message.role === "assistant");
         currentAttemptAssistant = findCurrentAttemptAssistantMessage({
@@ -3458,7 +3460,7 @@ export async function runEmbeddedAttempt(
         toolMetas: toolMetasNormalized,
         lastAssistant,
         currentAttemptAssistant,
-        previousAssistantBeforeCurrentPrompt,
+        previousAssistantBeforeTurn,
         lastToolError: getLastToolError?.(),
         didSendViaMessagingTool: didSendViaMessagingTool(),
         messagingToolSentTexts: getMessagingToolSentTexts(),

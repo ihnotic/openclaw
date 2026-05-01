@@ -147,7 +147,7 @@ describe("resolveAssistantForFinalPayload", () => {
     expect(
       resolveAssistantForFinalPayload({
         currentAttemptAssistant: currentAssistant,
-        previousAssistantBeforeCurrentPrompt: priorAssistant,
+        previousAssistantBeforeTurn: priorAssistant,
         replayInvalid: true,
       }),
     ).toBeUndefined();
@@ -180,7 +180,7 @@ describe("resolveAssistantTextsForFinalPayload", () => {
       resolveAssistantTextsForFinalPayload({
         assistantTexts: ["QA_MODEL previous ok"],
         currentAttemptAssistant: currentAssistant,
-        previousAssistantBeforeCurrentPrompt: priorAssistant,
+        previousAssistantBeforeTurn: priorAssistant,
         finalPromptText: "QA_PLEX_YES_123456 answer this current prompt",
         replayInvalid: true,
       }),
@@ -212,7 +212,7 @@ describe("resolveAssistantTextsForFinalPayload", () => {
       resolveAssistantTextsForFinalPayload({
         assistantTexts: ["Prior answer"],
         currentAttemptAssistant: currentAssistant,
-        previousAssistantBeforeCurrentPrompt: priorAssistant,
+        previousAssistantBeforeTurn: priorAssistant,
         finalPromptText: "What is the status?",
         replayInvalid: true,
       }),
