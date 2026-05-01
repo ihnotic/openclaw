@@ -329,6 +329,38 @@ describe("agent wait dedupe helper", () => {
     });
   });
 
+  it("preserves a superseded cancel snapshot when late completion writes the same key", () => {
+    const dedupe = new Map();
+    const runId = "run-superseded-wins";
+
+    setRunEntry({
+      dedupe,
+      kind: "agent",
+      runId,
+      ts: 100,
+      payload: { runId, status: "timeout", stopReason: "superseded", endedAt: 100 },
+    });
+    setRunEntry({
+      dedupe,
+      kind: "agent",
+      runId,
+      ts: 200,
+      payload: { runId, status: "ok", endedAt: 200 },
+    });
+
+    expect(
+      readTerminalSnapshotFromGatewayDedupe({
+        dedupe,
+        runId,
+      }),
+    ).toEqual({
+      status: "timeout",
+      endedAt: 100,
+      error: undefined,
+      stopReason: "superseded",
+    });
+  });
+
   it("preserves an RPC cancel snapshot when late rejection writes the same chat key", () => {
     const dedupe = new Map();
     const runId = "run-cancel-chat-error";
