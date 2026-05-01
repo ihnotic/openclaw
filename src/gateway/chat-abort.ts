@@ -197,3 +197,30 @@ export function abortChatRunById(
   }
   return { aborted: true };
 }
+
+export function abortChatRunsForSessionKey(
+  ops: ChatAbortOps,
+  params: {
+    sessionKey: string;
+    stopReason?: string;
+  },
+): { aborted: boolean; runIds: string[] } {
+  const runIds: string[] = [];
+  for (const [runId, active] of [...ops.chatAbortControllers]) {
+    if (active.sessionKey !== params.sessionKey) {
+      continue;
+    }
+    const result = abortChatRunById(ops, {
+      runId,
+      sessionKey: params.sessionKey,
+      stopReason: params.stopReason,
+    });
+    if (result.aborted) {
+      runIds.push(runId);
+    }
+  }
+  return {
+    aborted: runIds.length > 0,
+    runIds,
+  };
+}

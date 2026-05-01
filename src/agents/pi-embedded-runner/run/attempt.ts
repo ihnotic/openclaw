@@ -485,6 +485,39 @@ function summarizeSessionContext(messages: AgentMessage[]): {
   };
 }
 
+function messageContentFingerprint(message: AgentMessage): string {
+  return JSON.stringify((message as { content?: unknown }).content ?? null);
+}
+
+function countUserTurnFingerprints(messages: AgentMessage[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    if (message.role !== "user") {
+      continue;
+    }
+    const fingerprint = messageContentFingerprint(message);
+    counts.set(fingerprint, (counts.get(fingerprint) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function shouldRefreshMessagesFromSessionManager(params: {
+  activeMessages: AgentMessage[];
+  sessionManagerMessages: AgentMessage[];
+}): boolean {
+  if (params.sessionManagerMessages.length === 0) {
+    return false;
+  }
+  const activeUserTurns = countUserTurnFingerprints(params.activeMessages);
+  const sessionManagerUserTurns = countUserTurnFingerprints(params.sessionManagerMessages);
+  for (const [fingerprint, count] of sessionManagerUserTurns) {
+    if ((activeUserTurns.get(fingerprint) ?? 0) < count) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function applyEmbeddedAttemptToolsAllow<T extends { name: string }>(
   tools: T[],
   toolsAllow?: string[],
@@ -1521,6 +1554,24 @@ export async function runEmbeddedAttempt(
         activeSession.agent.reset();
         applySystemPromptOverrideToSession(activeSession, "");
         systemPromptText = "";
+      } else {
+        const sessionContext = sessionManager.buildSessionContext();
+        const activeMessageCountBeforeRefresh = activeSession.messages.length;
+        if (
+          shouldRefreshMessagesFromSessionManager({
+            activeMessages: activeSession.messages,
+            sessionManagerMessages: sessionContext.messages,
+          })
+        ) {
+          activeSession.agent.state.messages = sessionContext.messages;
+          log.warn(
+            `embedded run restored user turns from SessionManager before prompt: ` +
+              `runId=${params.runId} sessionId=${params.sessionId} ` +
+              `sessionKey=${params.sessionKey ?? "<none>"} ` +
+              `activeMessages=${activeMessageCountBeforeRefresh} ` +
+              `sessionManagerMessages=${sessionContext.messages.length}`,
+          );
+        }
       }
       if (typeof activeSession.agent.convertToLlm === "function") {
         const baseConvertToLlm = activeSession.agent.convertToLlm.bind(activeSession.agent);

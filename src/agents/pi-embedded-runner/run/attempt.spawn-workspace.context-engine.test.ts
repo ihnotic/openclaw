@@ -207,6 +207,54 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     }
   });
 
+  it("restores transcript-backed Telegram user turns before context engine assembly", async () => {
+    const fullMessages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "What model are you running?" }],
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "openai-codex/gpt-5.5" }],
+        timestamp: 2,
+      },
+      { role: "user", content: [{ type: "text", text: "UniFi code 498563" }], timestamp: 3 },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Got it. What should I do with that code?" }],
+        timestamp: 4,
+      },
+    ] as AgentMessage[];
+    const activeSessionMessages = fullMessages.filter(
+      (message) => !JSON.stringify(message).includes("498563"),
+    );
+    const seen: { assembleMessages?: AgentMessage[]; promptMessages?: unknown[] } = {};
+
+    await createContextEngineAttemptRunner({
+      contextEngine: createTestContextEngine({
+        assemble: vi.fn(async ({ messages }) => {
+          seen.assembleMessages = [...messages];
+          return { messages, estimatedTokens: 1 };
+        }),
+      }),
+      sessionKey: "agent:main:telegram:direct:8599953238",
+      tempPaths,
+      sessionMessages: fullMessages,
+      activeSessionMessages,
+      attemptOverrides: {
+        prompt: "You said it expires and you need it for network skill",
+      },
+      sessionPrompt: async (session) => {
+        seen.promptMessages = [...session.messages];
+        session.messages = [...session.messages, doneMessage];
+      },
+    });
+
+    expect(JSON.stringify(seen.assembleMessages)).toContain("UniFi code 498563");
+    expect(JSON.stringify(seen.promptMessages)).toContain("UniFi code 498563");
+  });
+
   it("marks inter-session transcriptPrompt before submitting the visible prompt", async () => {
     let seenPrompt: string | undefined;
 

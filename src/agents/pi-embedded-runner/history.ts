@@ -4,6 +4,7 @@ import { normalizeOptionalLowercaseString } from "../../shared/string-coerce.js"
 import { normalizeProviderId } from "../provider-id.js";
 
 const THREAD_SUFFIX_REGEX = /^(.*)(?::(?:thread|topic):\d+)$/i;
+const SESSION_HISTORY_KINDS = new Set(["dm", "direct", "channel", "group"]);
 
 function stripThreadSuffix(value: string): string {
   const match = value.match(THREAD_SUFFIX_REGEX);
@@ -58,8 +59,16 @@ export function getHistoryLimitFromSessionKey(
     return undefined;
   }
 
-  const kind = normalizeOptionalLowercaseString(providerParts[1]);
-  const userIdRaw = providerParts.slice(2).join(":");
+  const firstKind = normalizeOptionalLowercaseString(providerParts[1]);
+  const secondKind = normalizeOptionalLowercaseString(providerParts[2]);
+  const kindIndex =
+    firstKind && SESSION_HISTORY_KINDS.has(firstKind)
+      ? 1
+      : secondKind && SESSION_HISTORY_KINDS.has(secondKind)
+        ? 2
+        : 1;
+  const kind = normalizeOptionalLowercaseString(providerParts[kindIndex]);
+  const userIdRaw = providerParts.slice(kindIndex + 1).join(":");
   const userId = stripThreadSuffix(userIdRaw);
 
   const resolveProviderConfig = (
