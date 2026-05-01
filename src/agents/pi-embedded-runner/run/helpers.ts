@@ -194,3 +194,14 @@ export function resolveFinalAssistantRawText(
   const rawText = (finalAnswerText ?? extractAssistantTextForPhase(lastAssistant) ?? "").trim();
   return rawText || undefined;
 }
+
+export function resolveAssistantForFinalPayload(params: {
+  currentAttemptAssistant?: AssistantMessage | undefined;
+  sessionLastAssistant?: AssistantMessage | undefined;
+  replayInvalid?: boolean;
+}): AssistantMessage | undefined {
+  if (params.currentAttemptAssistant) {
+    return params.currentAttemptAssistant;
+  }
+  return params.replayInvalid ? undefined : params.sessionLastAssistant;
+}

@@ -1,6 +1,10 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
-import { resolveFinalAssistantRawText, resolveFinalAssistantVisibleText } from "./helpers.js";
+import {
+  resolveAssistantForFinalPayload,
+  resolveFinalAssistantRawText,
+  resolveFinalAssistantVisibleText,
+} from "./helpers.js";
 
 function makeAssistantMessage(
   content: AssistantMessage["content"],
@@ -71,5 +75,49 @@ describe("resolveFinalAssistantVisibleText", () => {
     ]);
 
     expect(resolveFinalAssistantRawText(lastAssistant)).toBe("<final>keep this</final>");
+  });
+});
+
+describe("resolveAssistantForFinalPayload", () => {
+  it("does not fall back to a prior session assistant when replay is invalid", () => {
+    const priorAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "QA_MODEL previous ok",
+        textSignature: JSON.stringify({ v: 1, id: "prior_final", phase: "final_answer" }),
+      },
+    ]);
+
+    expect(
+      resolveAssistantForFinalPayload({
+        sessionLastAssistant: priorAssistant,
+        replayInvalid: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("uses the current attempt assistant even when replay is invalid", () => {
+    const priorAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "QA_MODEL previous ok",
+        textSignature: JSON.stringify({ v: 1, id: "prior_final", phase: "final_answer" }),
+      },
+    ]);
+    const currentAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "QA_PLEX_YES current ok",
+        textSignature: JSON.stringify({ v: 1, id: "current_final", phase: "final_answer" }),
+      },
+    ]);
+
+    expect(
+      resolveAssistantForFinalPayload({
+        currentAttemptAssistant: currentAssistant,
+        sessionLastAssistant: priorAssistant,
+        replayInvalid: true,
+      }),
+    ).toBe(currentAssistant);
   });
 });
