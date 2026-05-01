@@ -1,7 +1,7 @@
 import { withPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 import { formatControlPlaneActor, resolveControlPlaneActor } from "./control-plane-audit.js";
 import { consumeControlPlaneWriteBudget } from "./control-plane-rate-limit.js";
-import { ADMIN_SCOPE, authorizeOperatorScopesForMethod } from "./method-scopes.js";
+import { ADMIN_SCOPE, WRITE_SCOPE, authorizeOperatorScopesForMethod } from "./method-scopes.js";
 import { ErrorCodes, errorShape } from "./protocol/index.js";
 import { isRoleAuthorizedForMethod, parseGatewayRole } from "./role-policy.js";
 import { agentHandlers } from "./server-methods/agent.js";
@@ -42,7 +42,24 @@ import { webHandlers } from "./server-methods/web.js";
 import { wizardHandlers } from "./server-methods/wizard.js";
 
 const CONTROL_PLANE_WRITE_METHODS = new Set(["config.apply", "config.patch", "update.run"]);
-function authorizeGatewayMethod(method: string, client: GatewayRequestOptions["client"]) {
+const WRITE_SCOPED_SESSION_PATCH_KEYS = new Set(["key", "label", "model", "thinkingLevel"]);
+
+function isWriteScopedSessionPatch(method: string, params: unknown): boolean {
+  if (method !== "sessions.patch") {
+    return false;
+  }
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    return false;
+  }
+  const keys = Object.keys(params);
+  return keys.length > 0 && keys.every((key) => WRITE_SCOPED_SESSION_PATCH_KEYS.has(key));
+}
+
+function authorizeGatewayMethod(
+  method: string,
+  client: GatewayRequestOptions["client"],
+  params: unknown,
+) {
   if (!client?.connect) {
     return null;
   }
@@ -66,6 +83,13 @@ function authorizeGatewayMethod(method: string, client: GatewayRequestOptions["c
   }
   const scopeAuth = authorizeOperatorScopesForMethod(method, scopes);
   if (!scopeAuth.allowed) {
+    if (
+      scopeAuth.missingScope === ADMIN_SCOPE &&
+      scopes.includes(WRITE_SCOPE) &&
+      isWriteScopedSessionPatch(method, params)
+    ) {
+      return null;
+    }
     return errorShape(ErrorCodes.INVALID_REQUEST, `missing scope: ${scopeAuth.missingScope}`);
   }
   return null;
@@ -113,7 +137,7 @@ export async function handleGatewayRequest(
   opts: GatewayRequestOptions & { extraHandlers?: GatewayRequestHandlers },
 ): Promise<void> {
   const { req, respond, client, isWebchatConnect, context } = opts;
-  const authError = authorizeGatewayMethod(req.method, client);
+  const authError = authorizeGatewayMethod(req.method, client, req.params);
   if (authError) {
     respond(false, undefined, authError);
     return;
