@@ -227,6 +227,36 @@ function hasCurrentPromptAnchor(params: {
   );
 }
 
+function isProgressOnlyCommentaryText(text: string | undefined): boolean {
+  const normalized = normalizeComparableReplyText(text);
+  if (!normalized) {
+    return true;
+  }
+  return (
+    /^(?:working(?: on (?:it|that|this))?|checking(?: now)?|looking (?:into|up) (?:it|that|this)?|one moment|hang on|hold on)\.?$/iu.test(
+      normalized,
+    ) ||
+    /^(?:let me|i(?:'ll| will| am going to|'m going to)|first[, ]+i(?:'ll| will)|next[, ]+i(?:'ll| will))\b/iu.test(
+      normalized,
+    ) ||
+    /^i(?:'m| am) (?:checking|looking|going to|working on)\b/iu.test(normalized)
+  );
+}
+
+function isPromotableCurrentCommentaryText(params: {
+  text: string | undefined;
+  finalPromptText?: string | undefined;
+}): boolean {
+  const text = params.text ?? "";
+  if (!text.trim()) {
+    return false;
+  }
+  if (hasCurrentPromptAnchor({ text, finalPromptText: params.finalPromptText })) {
+    return true;
+  }
+  return !isProgressOnlyCommentaryText(text);
+}
+
 function resolveStaleReplayFinalText(params: {
   currentAttemptAssistant?: AssistantMessage | undefined;
   previousAssistantBeforeTurn?: AssistantMessage | undefined;
@@ -281,7 +311,10 @@ export function resolveAssistantTextsForFinalPayload(params: {
   if (
     commentaryText &&
     normalizeComparableReplyText(commentaryText) !== normalizedStaleFinalText &&
-    hasCurrentPromptAnchor({ text: commentaryText, finalPromptText: params.finalPromptText })
+    isPromotableCurrentCommentaryText({
+      text: commentaryText,
+      finalPromptText: params.finalPromptText,
+    })
   ) {
     return filtered.length > 0 ? filtered : [commentaryText];
   }
