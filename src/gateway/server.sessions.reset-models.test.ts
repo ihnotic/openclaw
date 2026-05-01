@@ -50,6 +50,45 @@ test("sessions.reset recomputes model from defaults instead of stale runtime mod
   await expect(fs.stat(reset.payload?.entry.sessionFile as string)).resolves.toBeTruthy();
 });
 
+test("sessions.reset rewrites default transcript files to the new session id", async () => {
+  const { storePath } = await createSessionStoreDir();
+  testState.agentConfig = {
+    model: {
+      primary: "openai/gpt-test-a",
+    },
+  };
+  const sessionsDir = await fs.realpath(path.dirname(storePath));
+  const oldSessionId = "sess-default-file-before-reset";
+  const oldSessionFile = path.join(sessionsDir, `${oldSessionId}.jsonl`);
+  await fs.writeFile(oldSessionFile, `${JSON.stringify({ role: "user", content: "old" })}\n`);
+
+  await writeSessionStore({
+    entries: {
+      main: sessionStoreEntry(oldSessionId, {
+        sessionFile: oldSessionFile,
+      }),
+    },
+  });
+
+  const reset = await directSessionReq<{
+    ok: true;
+    entry: {
+      sessionId: string;
+      sessionFile?: string;
+    };
+  }>("sessions.reset", { key: "main" });
+
+  expect(reset.ok).toBe(true);
+  const newSessionId = reset.payload?.entry.sessionId;
+  const newSessionFile = reset.payload?.entry.sessionFile;
+  expect(newSessionId).toBeTruthy();
+  expect(newSessionId).not.toBe(oldSessionId);
+  expect(newSessionFile).toBeTruthy();
+  expect(newSessionFile).not.toBe(oldSessionFile);
+  expect(path.basename(newSessionFile as string)).toBe(`${newSessionId}.jsonl`);
+  await expect(fs.stat(newSessionFile as string)).resolves.toBeTruthy();
+});
+
 test("sessions.reset preserves legacy explicit model overrides without modelOverrideSource", async () => {
   const { storePath } = await createSessionStoreDir();
   testState.agentConfig = {

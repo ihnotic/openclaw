@@ -15,7 +15,7 @@ export const DEFAULT_SILENT_REPLY_POLICY: Record<SilentReplyConversationType, Si
 };
 
 export const DEFAULT_SILENT_REPLY_REWRITE: Record<SilentReplyConversationType, boolean> = {
-  direct: true,
+  direct: false,
   group: false,
   internal: false,
 };

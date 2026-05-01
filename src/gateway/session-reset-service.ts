@@ -66,6 +66,39 @@ function stripRuntimeModelState(entry?: SessionEntry): SessionEntry | undefined 
   };
 }
 
+function rewriteDefaultSessionFileForReset(params: {
+  sessionFile?: string;
+  previousSessionId?: string;
+  nextSessionId: string;
+}): string | undefined {
+  const trimmed = params.sessionFile?.trim();
+  const previousSessionId = params.previousSessionId?.trim();
+  if (!trimmed || !previousSessionId) {
+    return undefined;
+  }
+  const base = path.basename(trimmed);
+  if (!base.endsWith(".jsonl")) {
+    return undefined;
+  }
+  const withoutExt = base.slice(0, -".jsonl".length);
+  if (withoutExt === previousSessionId) {
+    return path.join(path.dirname(trimmed), `${params.nextSessionId}.jsonl`);
+  }
+  if (withoutExt.startsWith(`${previousSessionId}-topic-`)) {
+    return path.join(
+      path.dirname(trimmed),
+      `${params.nextSessionId}${base.slice(previousSessionId.length)}`,
+    );
+  }
+  const forkMatch = withoutExt.match(
+    /^(\d{4}-\d{2}-\d{2}T[\w-]+(?:Z|[+-]\d{2}(?:-\d{2})?)?)_(.+)$/,
+  );
+  if (forkMatch?.[2] === previousSessionId) {
+    return path.join(path.dirname(trimmed), `${forkMatch[1]}_${params.nextSessionId}.jsonl`);
+  }
+  return undefined;
+}
+
 export function archiveSessionTranscriptsForSession(params: {
   sessionId: string | undefined;
   storePath: string;
@@ -555,9 +588,18 @@ export async function performGatewaySessionReset(params: {
     oldSessionFile = currentEntry?.sessionFile;
     const now = Date.now();
     const nextSessionId = randomUUID();
+    const rewrittenSessionFile = rewriteDefaultSessionFileForReset({
+      sessionFile: currentEntry?.sessionFile,
+      previousSessionId: currentEntry?.sessionId,
+      nextSessionId,
+    });
     const sessionFile = resolveSessionFilePath(
       nextSessionId,
-      currentEntry?.sessionFile ? { sessionFile: currentEntry.sessionFile } : undefined,
+      rewrittenSessionFile
+        ? { sessionFile: rewrittenSessionFile }
+        : currentEntry?.sessionFile
+          ? { sessionFile: currentEntry.sessionFile }
+          : undefined,
       resolveSessionFilePathOptions({
         storePath,
         agentId: sessionAgentId,

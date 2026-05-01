@@ -5,6 +5,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { generateSecureInt } from "../../infra/secure-random.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
+  classifySilentReplyConversationType,
   resolveSilentReplyRewriteText,
   type SilentReplyConversationType,
 } from "../../shared/silent-reply-policy.js";
@@ -146,6 +147,20 @@ function resolveSilentFinalPayload(params: {
     conversationType: context.conversationType,
   });
   if (resolvedSettings.policy === "allow") {
+    return undefined;
+  }
+  const conversationType = classifySilentReplyConversationType({
+    sessionKey: context.sessionKey,
+    surface: context.surface,
+    conversationType: context.conversationType,
+  });
+  if (conversationType === "direct") {
+    silentReplyLogger.warn("dropping exact NO_REPLY final payload for direct conversation", {
+      hasSessionKey: Boolean(context.sessionKey),
+      surface: context.surface,
+      conversationType,
+      resolvedPolicy: resolvedSettings.policy,
+    });
     return undefined;
   }
   if (resolvedSettings.rewrite) {
