@@ -187,7 +187,71 @@ describe("resolveAssistantTextsForFinalPayload", () => {
     ).toEqual(["QA_PLEX_YES_123456 current ok"]);
   });
 
-  it("emits a retry notice instead of silently dropping an unanchored stale final", () => {
+  it("promotes unanchored substantive commentary when replay-invalid final text repeats the prior answer", () => {
+    const priorAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "No recent Plex additions.",
+        textSignature: JSON.stringify({ v: 1, id: "prior_final", phase: "final_answer" }),
+      },
+    ]);
+    const currentAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "I checked Plex and Django Unchained is the newest library addition.",
+        textSignature: JSON.stringify({ v: 1, id: "current_commentary", phase: "commentary" }),
+      },
+      {
+        type: "text",
+        text: "No recent Plex additions.",
+        textSignature: JSON.stringify({ v: 1, id: "current_final", phase: "final_answer" }),
+      },
+    ]);
+
+    expect(
+      resolveAssistantTextsForFinalPayload({
+        assistantTexts: ["No recent Plex additions."],
+        currentAttemptAssistant: currentAssistant,
+        previousAssistantBeforeTurn: priorAssistant,
+        finalPromptText: "What's new on Plex?",
+        replayInvalid: true,
+      }),
+    ).toEqual(["I checked Plex and Django Unchained is the newest library addition."]);
+  });
+
+  it("promotes short unanchored substantive commentary when replay-invalid final text repeats the prior answer", () => {
+    const priorAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "Yesterday's SAB history is unchanged.",
+        textSignature: JSON.stringify({ v: 1, id: "prior_final", phase: "final_answer" }),
+      },
+    ]);
+    const currentAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "No new SAB grabs.",
+        textSignature: JSON.stringify({ v: 1, id: "current_commentary", phase: "commentary" }),
+      },
+      {
+        type: "text",
+        text: "Yesterday's SAB history is unchanged.",
+        textSignature: JSON.stringify({ v: 1, id: "current_final", phase: "final_answer" }),
+      },
+    ]);
+
+    expect(
+      resolveAssistantTextsForFinalPayload({
+        assistantTexts: ["Yesterday's SAB history is unchanged."],
+        currentAttemptAssistant: currentAssistant,
+        previousAssistantBeforeTurn: priorAssistant,
+        finalPromptText: "What are the latest SAB grabs?",
+        replayInvalid: true,
+      }),
+    ).toEqual(["No new SAB grabs."]);
+  });
+
+  it("emits a retry notice instead of promoting progress-only commentary", () => {
     const priorAssistant = makeAssistantMessage([
       {
         type: "text",
