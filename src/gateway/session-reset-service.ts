@@ -99,6 +99,21 @@ function rewriteDefaultSessionFileForReset(params: {
   return undefined;
 }
 
+function isDefaultUuidSessionFilePath(sessionFile?: string): boolean {
+  const trimmed = sessionFile?.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const base = path.basename(trimmed);
+  if (!base.endsWith(".jsonl")) {
+    return false;
+  }
+  const withoutExt = base.slice(0, -".jsonl".length);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    withoutExt,
+  );
+}
+
 export function archiveSessionTranscriptsForSession(params: {
   sessionId: string | undefined;
   storePath: string;
@@ -593,12 +608,16 @@ export async function performGatewaySessionReset(params: {
       previousSessionId: currentEntry?.sessionId,
       nextSessionId,
     });
+    const preservedSessionFile =
+      currentEntry?.sessionFile && !isDefaultUuidSessionFilePath(currentEntry.sessionFile)
+        ? currentEntry.sessionFile
+        : undefined;
     const sessionFile = resolveSessionFilePath(
       nextSessionId,
       rewrittenSessionFile
         ? { sessionFile: rewrittenSessionFile }
-        : currentEntry?.sessionFile
-          ? { sessionFile: currentEntry.sessionFile }
+        : preservedSessionFile
+          ? { sessionFile: preservedSessionFile }
           : undefined,
       resolveSessionFilePathOptions({
         storePath,
