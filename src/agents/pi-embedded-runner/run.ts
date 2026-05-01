@@ -109,6 +109,8 @@ import {
   buildUsageAgentMetaFields,
   createCompactionDiagId,
   resolveActiveErrorContext,
+  resolveAssistantForFinalPayload,
+  resolveAssistantTextsForFinalPayload,
   resolveFinalAssistantRawText,
   resolveFinalAssistantVisibleText,
   resolveMaxRunRetryIterations,
@@ -2037,13 +2039,28 @@ export async function runEmbeddedPiAgent(
             compactionCount: autoCompactionCount > 0 ? autoCompactionCount : undefined,
             compactionTokensAfter: lastCompactionTokensAfter,
           };
-          const finalAssistantVisibleText = resolveFinalAssistantVisibleText(sessionLastAssistant);
-          const finalAssistantRawText = resolveFinalAssistantRawText(sessionLastAssistant);
+          const replayInvalid = resolveReplayInvalidForAttempt(null);
+          const assistantForFinalPayload = resolveAssistantForFinalPayload({
+            currentAttemptAssistant,
+            sessionLastAssistant,
+            previousAssistantBeforeTurn: attempt.previousAssistantBeforeTurn,
+            replayInvalid,
+          });
+          const assistantTextsForFinalPayload = resolveAssistantTextsForFinalPayload({
+            assistantTexts: attempt.assistantTexts,
+            currentAttemptAssistant,
+            previousAssistantBeforeTurn: attempt.previousAssistantBeforeTurn,
+            finalPromptText: attempt.finalPromptText,
+            replayInvalid,
+          });
+          const finalAssistantVisibleText =
+            resolveFinalAssistantVisibleText(assistantForFinalPayload);
+          const finalAssistantRawText = resolveFinalAssistantRawText(assistantForFinalPayload);
 
           const payloads = buildEmbeddedRunPayloads({
-            assistantTexts: attempt.assistantTexts,
+            assistantTexts: assistantTextsForFinalPayload,
             toolMetas: attempt.toolMetas,
-            lastAssistant: attempt.lastAssistant,
+            lastAssistant: assistantForFinalPayload,
             lastToolError: attempt.lastToolError,
             config: params.config,
             isCronTrigger: params.trigger === "cron",
@@ -2491,7 +2508,6 @@ export async function runEmbeddedPiAgent(
               agentDir: params.agentDir,
             });
           }
-          const replayInvalid = resolveReplayInvalidForAttempt(null);
           const livenessState = attempt.yieldDetected
             ? "paused"
             : resolveRunLivenessState({

@@ -2,6 +2,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { ContextEngine } from "../../../context-engine/types.js";
 import type { BootstrapMode } from "../../bootstrap-mode.js";
+import { extractAssistantVisibleText } from "../../pi-embedded-utils.js";
 import { normalizeUsage, type NormalizedUsage } from "../../usage.js";
 import type { PromptCacheChange } from "../prompt-cache-observability.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
@@ -111,6 +112,41 @@ export function findCurrentAttemptAssistantMessage(params: {
     .slice(Math.max(0, params.prePromptMessageCount))
     .toReversed()
     .find((message): message is AssistantMessage => message.role === "assistant");
+}
+
+function isAssistantWithVisibleText(message: AgentMessage): message is AssistantMessage {
+  return (
+    message.role === "assistant" &&
+    Boolean(extractAssistantVisibleText(message as AssistantMessage).trim())
+  );
+}
+
+export function findPreviousAssistantBeforeTurn(params: {
+  messagesSnapshot: AgentMessage[];
+  prePromptMessageCount: number;
+}): AssistantMessage | undefined {
+  const previousVisibleAssistantByCount = params.messagesSnapshot
+    .slice(0, Math.max(0, params.prePromptMessageCount))
+    .toReversed()
+    .find(isAssistantWithVisibleText);
+  if (previousVisibleAssistantByCount) {
+    return previousVisibleAssistantByCount;
+  }
+
+  const lastAssistantIndex = params.messagesSnapshot.findLastIndex(
+    (message) => message.role === "assistant",
+  );
+  const latestUserIndexBeforeLastAssistant = params.messagesSnapshot.findLastIndex(
+    (message, index) =>
+      message.role === "user" && (lastAssistantIndex < 0 || index < lastAssistantIndex),
+  );
+  if (latestUserIndexBeforeLastAssistant < 0) {
+    return undefined;
+  }
+  return params.messagesSnapshot
+    .slice(0, latestUserIndexBeforeLastAssistant)
+    .toReversed()
+    .find(isAssistantWithVisibleText);
 }
 
 function parsePromptCacheTouchTimestamp(value: unknown): number | null {

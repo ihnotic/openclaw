@@ -118,6 +118,10 @@ import {
 } from "../session-utils.js";
 import { formatForLog } from "../ws-log.js";
 import { waitForAgentJob } from "./agent-job.js";
+import {
+  abortSupersededSessionRuns,
+  shouldSupersedeActiveSessionRuns,
+} from "./agent-session-supersede.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
 import {
   readTerminalSnapshotFromGatewayDedupe,
@@ -1085,6 +1089,20 @@ export const agentHandlers: GatewayRequestHandlers = {
     }
 
     const runId = idem;
+    if (resolvedSessionKey && shouldSupersedeActiveSessionRuns(inputProvenance)) {
+      const superseded = await abortSupersededSessionRuns({
+        context,
+        sessionKey: resolvedSessionKey,
+        nextRunId: runId,
+      });
+      if (!superseded.ok) {
+        respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, superseded.error), {
+          runId,
+          error: superseded.error,
+        });
+        return;
+      }
+    }
     const connId = typeof client?.connId === "string" ? client.connId : undefined;
     const wantsToolEvents = hasGatewayClientCap(
       client?.connect?.caps,

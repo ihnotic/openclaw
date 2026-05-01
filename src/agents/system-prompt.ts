@@ -738,7 +738,7 @@ export function buildAgentSystemPrompt(params: {
           "- sessions_history: fetch session history",
           "- sessions_send: send to another session",
           "- subagents: list/steer/kill sub-agent runs",
-          '- session_status: show usage/time/model state and answer "what model are we using?"',
+          "- session_status: show usage/time/model state and answer explicit model/status/time/configuration questions; do not use it after answering an unrelated task",
         ].join("\n"),
     "TOOLS.md does not control tool availability; it is user guidance for how to use external tools.",
     `For long waits, avoid rapid poll loops: use ${execToolName} with enough yieldMs or ${processToolName}(action=poll, timeout=<ms>).`,
@@ -767,6 +767,8 @@ export function buildAgentSystemPrompt(params: {
         "Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions (e.g., deletions), or when the user explicitly asks.",
         "Keep narration brief and value-dense; avoid repeating obvious steps.",
         "Use plain human language for narration unless in a technical context.",
+        "The newest user message is authoritative. After any tool result, answer that message directly instead of resuming or answering an older request from transcript history.",
+        "Once you have enough information to answer, stop calling tools and provide the answer. Do not call session_status as a post-answer self-check; use it only when the user explicitly asks about model, status, configuration, current date, or current time.",
         "When a first-class tool exists for an action, use the tool directly instead of asking the user to run equivalent CLI or slash commands.",
         buildExecApprovalPromptGuidance({
           runtimeChannel: params.runtimeInfo?.channel,
