@@ -109,6 +109,7 @@ import {
   createCompactionDiagId,
   resolveActiveErrorContext,
   resolveAssistantForFinalPayload,
+  resolveAssistantTextsForFinalPayload,
   resolveFinalAssistantRawText,
   resolveFinalAssistantVisibleText,
   resolveMaxRunRetryIterations,
@@ -2010,6 +2011,14 @@ export async function runEmbeddedPiAgent(
           const assistantForFinalPayload = resolveAssistantForFinalPayload({
             currentAttemptAssistant,
             sessionLastAssistant,
+            previousAssistantBeforeCurrentPrompt: attempt.previousAssistantBeforeCurrentPrompt,
+            replayInvalid,
+          });
+          const assistantTextsForFinalPayload = resolveAssistantTextsForFinalPayload({
+            assistantTexts: attempt.assistantTexts,
+            currentAttemptAssistant,
+            previousAssistantBeforeCurrentPrompt: attempt.previousAssistantBeforeCurrentPrompt,
+            finalPromptText: attempt.finalPromptText,
             replayInvalid,
           });
           const finalAssistantVisibleText =
@@ -2017,7 +2026,7 @@ export async function runEmbeddedPiAgent(
           const finalAssistantRawText = resolveFinalAssistantRawText(assistantForFinalPayload);
 
           const payloads = buildEmbeddedRunPayloads({
-            assistantTexts: attempt.assistantTexts,
+            assistantTexts: assistantTextsForFinalPayload,
             toolMetas: attempt.toolMetas,
             lastAssistant: assistantForFinalPayload,
             lastToolError: attempt.lastToolError,

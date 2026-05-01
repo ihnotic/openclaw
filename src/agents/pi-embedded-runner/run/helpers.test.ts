@@ -2,8 +2,10 @@ import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
   resolveAssistantForFinalPayload,
+  resolveAssistantTextsForFinalPayload,
   resolveFinalAssistantRawText,
   resolveFinalAssistantVisibleText,
+  STALE_REPLAY_FINAL_ANSWER_NOTICE,
 } from "./helpers.js";
 
 function makeAssistantMessage(
@@ -119,5 +121,101 @@ describe("resolveAssistantForFinalPayload", () => {
         replayInvalid: true,
       }),
     ).toBe(currentAssistant);
+  });
+
+  it("suppresses a replay-invalid final answer when it repeats the prior final", () => {
+    const priorAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "QA_MODEL previous ok",
+        textSignature: JSON.stringify({ v: 1, id: "prior_final", phase: "final_answer" }),
+      },
+    ]);
+    const currentAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "QA_PLEX current ok",
+        textSignature: JSON.stringify({ v: 1, id: "current_commentary", phase: "commentary" }),
+      },
+      {
+        type: "text",
+        text: "QA_MODEL previous ok",
+        textSignature: JSON.stringify({ v: 1, id: "current_final", phase: "final_answer" }),
+      },
+    ]);
+
+    expect(
+      resolveAssistantForFinalPayload({
+        currentAttemptAssistant: currentAssistant,
+        previousAssistantBeforeCurrentPrompt: priorAssistant,
+        replayInvalid: true,
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe("resolveAssistantTextsForFinalPayload", () => {
+  it("promotes current anchored commentary when replay-invalid final text repeats the prior answer", () => {
+    const priorAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "QA_MODEL previous ok",
+        textSignature: JSON.stringify({ v: 1, id: "prior_final", phase: "final_answer" }),
+      },
+    ]);
+    const currentAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "QA_PLEX_YES_123456 current ok",
+        textSignature: JSON.stringify({ v: 1, id: "current_commentary", phase: "commentary" }),
+      },
+      {
+        type: "text",
+        text: "QA_MODEL previous ok",
+        textSignature: JSON.stringify({ v: 1, id: "current_final", phase: "final_answer" }),
+      },
+    ]);
+
+    expect(
+      resolveAssistantTextsForFinalPayload({
+        assistantTexts: ["QA_MODEL previous ok"],
+        currentAttemptAssistant: currentAssistant,
+        previousAssistantBeforeCurrentPrompt: priorAssistant,
+        finalPromptText: "QA_PLEX_YES_123456 answer this current prompt",
+        replayInvalid: true,
+      }),
+    ).toEqual(["QA_PLEX_YES_123456 current ok"]);
+  });
+
+  it("emits a retry notice instead of silently dropping an unanchored stale final", () => {
+    const priorAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "Prior answer",
+        textSignature: JSON.stringify({ v: 1, id: "prior_final", phase: "final_answer" }),
+      },
+    ]);
+    const currentAssistant = makeAssistantMessage([
+      {
+        type: "text",
+        text: "Working on it",
+        textSignature: JSON.stringify({ v: 1, id: "current_commentary", phase: "commentary" }),
+      },
+      {
+        type: "text",
+        text: "Prior answer",
+        textSignature: JSON.stringify({ v: 1, id: "current_final", phase: "final_answer" }),
+      },
+    ]);
+
+    expect(
+      resolveAssistantTextsForFinalPayload({
+        assistantTexts: ["Prior answer"],
+        currentAttemptAssistant: currentAssistant,
+        previousAssistantBeforeCurrentPrompt: priorAssistant,
+        finalPromptText: "What is the status?",
+        replayInvalid: true,
+      }),
+    ).toEqual([STALE_REPLAY_FINAL_ANSWER_NOTICE]);
   });
 });

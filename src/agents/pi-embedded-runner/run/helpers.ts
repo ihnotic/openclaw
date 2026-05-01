@@ -195,13 +195,97 @@ export function resolveFinalAssistantRawText(
   return rawText || undefined;
 }
 
+export const STALE_REPLAY_FINAL_ANSWER_NOTICE =
+  "The model produced a stale final answer from the previous turn after tool use. I suppressed it instead of sending the wrong answer. Please retry this message.";
+
+function normalizeComparableReplyText(text: string | undefined): string {
+  return (text ?? "").trim().replace(/\s+/gu, " ").toLowerCase();
+}
+
+function resolveCurrentPromptAnchors(finalPromptText: string | undefined): string[] {
+  const prompt = finalPromptText ?? "";
+  const anchors = new Set<string>();
+  for (const match of prompt.matchAll(/\b[A-Z][A-Z0-9_]{5,}\b/gu)) {
+    const marker = match[0]?.trim();
+    if (marker) {
+      anchors.add(marker);
+    }
+  }
+  return [...anchors];
+}
+
+function hasCurrentPromptAnchor(params: {
+  text: string | undefined;
+  finalPromptText?: string | undefined;
+}): boolean {
+  const text = params.text ?? "";
+  if (!text.trim()) {
+    return false;
+  }
+  return resolveCurrentPromptAnchors(params.finalPromptText).some((anchor) =>
+    text.includes(anchor),
+  );
+}
+
+function resolveStaleReplayFinalText(params: {
+  currentAttemptAssistant?: AssistantMessage | undefined;
+  previousAssistantBeforeCurrentPrompt?: AssistantMessage | undefined;
+  replayInvalid?: boolean;
+}): string | undefined {
+  if (!params.replayInvalid || !params.currentAttemptAssistant) {
+    return undefined;
+  }
+  const currentFinal = resolveFinalAssistantVisibleText(params.currentAttemptAssistant);
+  const previousFinal = resolveFinalAssistantVisibleText(
+    params.previousAssistantBeforeCurrentPrompt,
+  );
+  const normalizedCurrent = normalizeComparableReplyText(currentFinal);
+  const normalizedPrevious = normalizeComparableReplyText(previousFinal);
+  if (!normalizedCurrent || !normalizedPrevious || normalizedCurrent !== normalizedPrevious) {
+    return undefined;
+  }
+  return currentFinal;
+}
+
 export function resolveAssistantForFinalPayload(params: {
   currentAttemptAssistant?: AssistantMessage | undefined;
   sessionLastAssistant?: AssistantMessage | undefined;
+  previousAssistantBeforeCurrentPrompt?: AssistantMessage | undefined;
   replayInvalid?: boolean;
 }): AssistantMessage | undefined {
   if (params.currentAttemptAssistant) {
+    if (resolveStaleReplayFinalText(params)) {
+      return undefined;
+    }
     return params.currentAttemptAssistant;
   }
   return params.replayInvalid ? undefined : params.sessionLastAssistant;
+}
+
+export function resolveAssistantTextsForFinalPayload(params: {
+  assistantTexts: string[];
+  currentAttemptAssistant?: AssistantMessage | undefined;
+  previousAssistantBeforeCurrentPrompt?: AssistantMessage | undefined;
+  finalPromptText?: string | undefined;
+  replayInvalid?: boolean;
+}): string[] {
+  const staleFinalText = resolveStaleReplayFinalText(params);
+  if (!staleFinalText) {
+    return params.assistantTexts;
+  }
+  const normalizedStaleFinalText = normalizeComparableReplyText(staleFinalText);
+  const filtered = params.assistantTexts.filter(
+    (text) => normalizeComparableReplyText(text) !== normalizedStaleFinalText,
+  );
+  const commentaryText = extractAssistantTextForPhase(params.currentAttemptAssistant, {
+    phase: "commentary",
+  })?.trim();
+  if (
+    commentaryText &&
+    normalizeComparableReplyText(commentaryText) !== normalizedStaleFinalText &&
+    hasCurrentPromptAnchor({ text: commentaryText, finalPromptText: params.finalPromptText })
+  ) {
+    return filtered.length > 0 ? filtered : [commentaryText];
+  }
+  return filtered.length > 0 ? filtered : [STALE_REPLAY_FINAL_ANSWER_NOTICE];
 }

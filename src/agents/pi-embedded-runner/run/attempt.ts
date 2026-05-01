@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AssistantMessage } from "@mariozechner/pi-ai";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -2271,6 +2272,7 @@ export async function runEmbeddedAttempt(
       };
       let lastAssistant: AgentMessage | undefined;
       let currentAttemptAssistant: EmbeddedRunAttemptResult["currentAttemptAssistant"];
+      let previousAssistantBeforeCurrentPrompt: EmbeddedRunAttemptResult["previousAssistantBeforeCurrentPrompt"];
       let attemptUsage: NormalizedUsage | undefined;
       let cacheBreak: ReturnType<typeof completePromptCacheObservation> = null;
       let promptCache: EmbeddedRunAttemptResult["promptCache"];
@@ -3072,6 +3074,10 @@ export async function runEmbeddedAttempt(
           .slice()
           .toReversed()
           .find((m) => m.role === "assistant");
+        previousAssistantBeforeCurrentPrompt = messagesSnapshot
+          .slice(0, Math.max(0, prePromptMessageCount))
+          .toReversed()
+          .find((message): message is AssistantMessage => message.role === "assistant");
         currentAttemptAssistant = findCurrentAttemptAssistantMessage({
           messagesSnapshot,
           prePromptMessageCount,
@@ -3452,6 +3458,7 @@ export async function runEmbeddedAttempt(
         toolMetas: toolMetasNormalized,
         lastAssistant,
         currentAttemptAssistant,
+        previousAssistantBeforeCurrentPrompt,
         lastToolError: getLastToolError?.(),
         didSendViaMessagingTool: didSendViaMessagingTool(),
         messagingToolSentTexts: getMessagingToolSentTexts(),
