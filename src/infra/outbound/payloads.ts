@@ -18,6 +18,7 @@ import {
   type ReplyPayloadDelivery,
 } from "../../interactive/payload.js";
 import {
+  classifySilentReplyConversationType,
   resolveSilentReplyRewriteText,
   type SilentReplyConversationType,
 } from "../../shared/silent-reply-policy.js";
@@ -193,6 +194,11 @@ export function createOutboundPayloadPlan(
     surface: context.surface,
     conversationType: context.conversationType,
   });
+  const silentReplyConversationType = classifySilentReplyConversationType({
+    sessionKey: context.sessionKey,
+    surface: context.surface,
+    conversationType: context.conversationType,
+  });
   const hasPendingSpawnedChildren =
     context.hasPendingSpawnedChildren ?? resolvePendingSpawnedChildren(context.sessionKey);
   const prepared: PreparedOutboundPayloadPlanEntry[] = [];
@@ -232,6 +238,9 @@ export function createOutboundPayloadPlan(
       resolvedSilentReplySettings.policy === "allow" ||
       hasPendingSpawnedChildren
     ) {
+      continue;
+    }
+    if (silentReplyConversationType === "direct") {
       continue;
     }
     if (!resolvedSilentReplySettings.rewrite) {

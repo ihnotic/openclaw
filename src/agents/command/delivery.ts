@@ -333,7 +333,12 @@ export async function deliverAgentCommandResult(params: {
           accountId: resolvedAccountId,
         })
       : normalizedReplyPayloads;
-  const outboundPayloadPlan = createOutboundPayloadPlan(mediaNormalizedReplyPayloads);
+  const outboundPayloadPlan = createOutboundPayloadPlan(mediaNormalizedReplyPayloads, {
+    cfg,
+    sessionKey: outboundSession?.policyKey ?? effectiveSessionKey,
+    surface: deliveryChannel,
+    conversationType: outboundSession?.conversationType,
+  });
   const normalizedPayloads = projectOutboundPayloadPlanForJson(outboundPayloadPlan);
   const resultMeta = mergeResultMetaOverrides(result.meta, opts.resultMetaOverrides);
   if (opts.json) {

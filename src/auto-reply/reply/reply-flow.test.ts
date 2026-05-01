@@ -21,7 +21,7 @@ describe("createReplyDispatcher", () => {
     expect(deliver.mock.calls[1]?.[0]?.text).toBe(`interject.${SILENT_REPLY_TOKEN}`);
   });
 
-  it("rewrites exact NO_REPLY final payloads for direct sessions where rewrite is enabled", async () => {
+  it("drops exact NO_REPLY final payloads for direct sessions even when rewrite is enabled", async () => {
     const deliver = vi.fn().mockResolvedValue(undefined);
     const cfg: OpenClawConfig = {
       agents: {
@@ -46,15 +46,13 @@ describe("createReplyDispatcher", () => {
       },
     });
 
-    expect(dispatcher.sendFinalReply({ text: SILENT_REPLY_TOKEN })).toBe(true);
+    expect(dispatcher.sendFinalReply({ text: SILENT_REPLY_TOKEN })).toBe(false);
 
     await dispatcher.waitForIdle();
-    expect(deliver).toHaveBeenCalledTimes(1);
-    expect(deliver.mock.calls[0]?.[0]?.text).not.toBe(SILENT_REPLY_TOKEN);
-    expect(deliver.mock.calls[0]?.[0]?.text).toBeTruthy();
+    expect(deliver).not.toHaveBeenCalled();
   });
 
-  it("preserves exact NO_REPLY final payloads for direct sessions where rewrite is disabled", async () => {
+  it("drops exact NO_REPLY final payloads for direct sessions where rewrite is disabled", async () => {
     const deliver = vi.fn().mockResolvedValue(undefined);
     const cfg: OpenClawConfig = {
       agents: {
@@ -79,11 +77,10 @@ describe("createReplyDispatcher", () => {
       },
     });
 
-    expect(dispatcher.sendFinalReply({ text: SILENT_REPLY_TOKEN })).toBe(true);
+    expect(dispatcher.sendFinalReply({ text: SILENT_REPLY_TOKEN })).toBe(false);
 
     await dispatcher.waitForIdle();
-    expect(deliver).toHaveBeenCalledTimes(1);
-    expect(deliver.mock.calls[0]?.[0]?.text).toBe(SILENT_REPLY_TOKEN);
+    expect(deliver).not.toHaveBeenCalled();
   });
 
   it("still drops exact NO_REPLY final payloads for group sessions where silence is allowed", async () => {
