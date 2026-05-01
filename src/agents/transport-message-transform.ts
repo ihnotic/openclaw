@@ -115,7 +115,10 @@ export function transformTransportMessages(
   const replayable = transformed.filter((msg) => !isFailedAssistantTurn(msg));
 
   if (!allowSyntheticToolResults) {
-    return replayable;
+    return repairToolUseResultPairing(replayable, {
+      erroredAssistantResultPolicy: "drop",
+      missingToolResultPolicy: "drop_assistant_turn",
+    }).messages as Context["messages"];
   }
 
   // PI's local transform can synthesize missing results, but it does not move

@@ -94,6 +94,25 @@ describe("sanitizeToolUseResultPairing", () => {
     expect(result.added[0]?.content).toEqual([{ type: "text", text: "aborted" }]);
   });
 
+  it("can drop assistant tool-call turns with missing results", () => {
+    const input = castAgentMessages([
+      { role: "user", content: "first" },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_1", name: "read", arguments: {} }],
+      },
+      { role: "user", content: "next question" },
+    ]);
+
+    const result = repairToolUseResultPairing(input, {
+      missingToolResultPolicy: "drop_assistant_turn",
+    });
+
+    expect(result.added).toHaveLength(0);
+    expect(result.messages.map((m) => m.role)).toEqual(["user", "user"]);
+    expect(JSON.stringify(result.messages)).not.toContain("call_1");
+  });
+
   it("keeps matched parallel tool results and synthesizes only missing siblings", () => {
     const input = castAgentMessages([
       {

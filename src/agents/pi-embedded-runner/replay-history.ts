@@ -661,6 +661,9 @@ export async function sanitizeSessionHistory(params: {
     isOpenAIResponsesApi && policy.repairToolUseResultPairing
       ? sanitizeToolUseResultPairing(sanitizedToolCalls, {
           erroredAssistantResultPolicy: "drop",
+          missingToolResultPolicy: policy.allowSyntheticToolResults
+            ? "synthesize"
+            : "drop_assistant_turn",
           // Match upstream Codex history normalization for OpenAI Responses:
           // missing function_call_output entries are model-visible "aborted".
           missingToolResultText: "aborted",
