@@ -259,9 +259,11 @@ export type ToolCallInputRepairOptions = {
 };
 
 export type ErroredAssistantResultPolicy = "preserve" | "drop";
+export type MissingToolResultPolicy = "synthesize" | "drop_assistant_turn";
 
 export type ToolUseResultPairingOptions = {
   erroredAssistantResultPolicy?: ErroredAssistantResultPolicy;
+  missingToolResultPolicy?: MissingToolResultPolicy;
   missingToolResultText?: string;
 };
 
@@ -444,6 +446,10 @@ function shouldDropErroredAssistantResults(options?: ToolUseResultPairingOptions
   return options?.erroredAssistantResultPolicy === "drop";
 }
 
+function shouldDropAssistantTurnWithMissingResults(options?: ToolUseResultPairingOptions): boolean {
+  return options?.missingToolResultPolicy === "drop_assistant_turn";
+}
+
 export function repairToolUseResultPairing(
   messages: AgentMessage[],
   options?: ToolUseResultPairingOptions,
@@ -574,6 +580,16 @@ export function repairToolUseResultPairing(
       } else {
         changed = true;
       }
+      for (const rem of remainder) {
+        out.push(rem);
+      }
+      i = j - 1;
+      continue;
+    }
+
+    const missingToolCalls = toolCalls.filter((call) => !spanResultsById.has(call.id));
+    if (missingToolCalls.length > 0 && shouldDropAssistantTurnWithMissingResults(options)) {
+      changed = true;
       for (const rem of remainder) {
         out.push(rem);
       }
