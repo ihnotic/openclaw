@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   abortChatRunById,
+  abortChatRunsForSessionKey,
   isChatStopCommandText,
   type ChatAbortOps,
   type ChatAbortControllerEntry,
@@ -139,5 +140,29 @@ describe("abortChatRunById", () => {
         content: [{ type: "text", text: "streamed text" }],
       }),
     );
+  });
+});
+
+describe("abortChatRunsForSessionKey", () => {
+  it("aborts every active run for the matching session key", () => {
+    const sessionKey = "agent:main:telegram:direct:8599953238";
+    const first = createActiveEntry(sessionKey);
+    const second = createActiveEntry(sessionKey);
+    const other = createActiveEntry("agent:main:main");
+    const ops = createOps({ runId: "run-1", entry: first, buffer: "first partial" });
+    ops.chatAbortControllers.set("run-2", second);
+    ops.chatAbortControllers.set("run-3", other);
+    ops.chatRunBuffers.set("run-2", "second partial");
+
+    const result = abortChatRunsForSessionKey(ops, { sessionKey, stopReason: "superseded" });
+
+    expect(result).toEqual({ aborted: true, runIds: ["run-1", "run-2"] });
+    expect(first.controller.signal.aborted).toBe(true);
+    expect(second.controller.signal.aborted).toBe(true);
+    expect(other.controller.signal.aborted).toBe(false);
+    expect(ops.chatAbortControllers.has("run-1")).toBe(false);
+    expect(ops.chatAbortControllers.has("run-2")).toBe(false);
+    expect(ops.chatAbortControllers.has("run-3")).toBe(true);
+    expect(ops.broadcast).toHaveBeenCalledTimes(2);
   });
 });

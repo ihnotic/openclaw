@@ -1041,6 +1041,72 @@ describe("sanitizeSessionHistory", () => {
     expect(toolResult.isError).toBe(true);
   });
 
+  it("preserves Telegram direct user turns after OpenAI Responses tool replay repair", async () => {
+    setNonGoogleModelApi();
+
+    const messages = castAgentMessages([
+      makeUserMessage("What model are you running"),
+      makeAssistantMessage([
+        {
+          type: "toolCall",
+          id: "call_status|fc_status",
+          name: "session_status",
+          arguments: { sessionKey: "current" },
+        },
+      ]),
+      castAgentMessage({
+        role: "toolResult",
+        toolCallId: "call_status|fc_status",
+        toolName: "session_status",
+        content: [{ type: "text", text: "Model: openai-codex/gpt-5.5" }],
+        isError: false,
+      }),
+      makeAssistantMessage([{ type: "text", text: "I am running GPT-5.5." }]),
+      castAgentMessage({
+        role: "user",
+        content: [{ type: "text", text: "UniFi code 498563" }],
+        timestamp: nextTimestamp(),
+      }),
+      makeAssistantMessage([
+        {
+          type: "thinking",
+          thinking: "",
+          thinkingSignature: JSON.stringify({
+            id: "rs_unifi_code",
+            type: "reasoning",
+            encrypted_content: "opaque",
+          }),
+        },
+        { type: "text", text: "Got it. What would you like me to do in UniFi with that code?" },
+      ]),
+      makeUserMessage("You said it expires and you need it for network skill"),
+    ]);
+
+    const sanitized = await sanitizeSessionHistory({
+      messages,
+      modelApi: "openai-codex-responses",
+      provider: "openai-codex",
+      modelId: "gpt-5.5",
+      sessionManager: makeMockSessionManager(),
+      sessionId: TEST_SESSION_ID,
+    });
+    const validated = await validateReplayTurns({
+      messages: sanitized,
+      modelApi: "openai-codex-responses",
+      provider: "openai-codex",
+      modelId: "gpt-5.5",
+      sessionId: TEST_SESSION_ID,
+    });
+
+    expect(JSON.stringify(validated)).toContain("UniFi code 498563");
+    expect(
+      validated.some(
+        (message) =>
+          message.role === "user" && JSON.stringify(message.content).includes("UniFi code 498563"),
+      ),
+    ).toBe(true);
+  });
+
   it("strips copied inbound metadata from assistant replay text", async () => {
     setNonGoogleModelApi();
 

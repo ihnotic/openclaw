@@ -10,6 +10,7 @@ import {
 import { isAcpRuntimeSpawnAvailable } from "../../../acp/runtime/availability.js";
 import { filterHeartbeatPairs } from "../../../auto-reply/heartbeat-filter.js";
 import { getRuntimeConfig } from "../../../config/config.js";
+import type { AssembleResult } from "../../../context-engine/types.js";
 import { emitTrustedDiagnosticEvent } from "../../../infra/diagnostic-events.js";
 import {
   createChildDiagnosticTraceContext,
@@ -228,6 +229,7 @@ import {
 import { splitSdkTools } from "../tool-split.js";
 import { mapThinkingLevel } from "../utils.js";
 import { flushPendingToolResultsAfterIdle } from "../wait-for-idle-before-flush.js";
+import { abortable as abortableWithSignal } from "./abortable.js";
 import { createEmbeddedAgentSessionWithResourceLoader } from "./attempt-session.js";
 export { buildContextEnginePromptCacheInfo } from "./attempt.context-engine-helpers.js";
 import {
@@ -353,7 +355,6 @@ export {
   shouldInjectHeartbeatPrompt,
 } from "./attempt.prompt-helpers.js";
 export {
-  buildSessionsYieldContextMessage,
   persistSessionsYieldContextMessage,
   queueSessionsYieldInterruptMessage,
   stripSessionsYieldArtifacts,
@@ -484,6 +485,39 @@ function summarizeSessionContext(messages: AgentMessage[]): {
   };
 }
 
+function messageContentFingerprint(message: AgentMessage): string {
+  return JSON.stringify((message as { content?: unknown }).content ?? null);
+}
+
+function countUserTurnFingerprints(messages: AgentMessage[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    if (message.role !== "user") {
+      continue;
+    }
+    const fingerprint = messageContentFingerprint(message);
+    counts.set(fingerprint, (counts.get(fingerprint) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function shouldRefreshMessagesFromSessionManager(params: {
+  activeMessages: AgentMessage[];
+  sessionManagerMessages: AgentMessage[];
+}): boolean {
+  if (params.sessionManagerMessages.length === 0) {
+    return false;
+  }
+  const activeUserTurns = countUserTurnFingerprints(params.activeMessages);
+  const sessionManagerUserTurns = countUserTurnFingerprints(params.sessionManagerMessages);
+  for (const [fingerprint, count] of sessionManagerUserTurns) {
+    if ((activeUserTurns.get(fingerprint) ?? 0) < count) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function applyEmbeddedAttemptToolsAllow<T extends { name: string }>(
   tools: T[],
   toolsAllow?: string[],
@@ -565,6 +599,13 @@ export function shouldCreateBundleMcpRuntimeForAttempt(params: {
   return params.toolsAllow.some(
     (toolName) => toolName === "bundle-mcp" || toolName.includes(TOOL_NAME_SEPARATOR),
   );
+}
+
+export function resolveAttemptToolPolicyMessageProvider(params: {
+  messageProvider?: string;
+  messageChannel?: string;
+}): string | undefined {
+  return params.messageProvider ?? params.messageChannel;
 }
 
 function collectAttemptExplicitToolAllowlistSources(params: {
@@ -785,7 +826,7 @@ export async function runEmbeddedAttempt(
                 elevated: params.bashElevated,
               },
               sandbox,
-              messageProvider: params.messageChannel ?? params.messageProvider,
+              messageProvider: resolveAttemptToolPolicyMessageProvider(params),
               agentAccountId: params.agentAccountId,
               messageTo: params.messageTo,
               messageThreadId: params.messageThreadId,
@@ -1004,7 +1045,7 @@ export async function runEmbeddedAttempt(
       agentId: sessionAgentId,
       modelProvider: params.provider,
       modelId: params.modelId,
-      messageProvider: params.messageChannel ?? params.messageProvider,
+      messageProvider: resolveAttemptToolPolicyMessageProvider(params),
       agentAccountId: params.agentAccountId,
       groupId: params.groupId,
       groupChannel: params.groupChannel,
@@ -1031,7 +1072,7 @@ export async function runEmbeddedAttempt(
       agentId: sessionAgentId,
       modelProvider: params.provider,
       modelId: params.modelId,
-      messageProvider: params.messageChannel ?? params.messageProvider,
+      messageProvider: resolveAttemptToolPolicyMessageProvider(params),
       agentAccountId: params.agentAccountId,
       groupId: params.groupId,
       groupChannel: params.groupChannel,
@@ -1513,6 +1554,24 @@ export async function runEmbeddedAttempt(
         activeSession.agent.reset();
         applySystemPromptOverrideToSession(activeSession, "");
         systemPromptText = "";
+      } else {
+        const sessionContext = sessionManager.buildSessionContext();
+        const activeMessageCountBeforeRefresh = activeSession.messages.length;
+        if (
+          shouldRefreshMessagesFromSessionManager({
+            activeMessages: activeSession.messages,
+            sessionManagerMessages: sessionContext.messages,
+          })
+        ) {
+          activeSession.agent.state.messages = sessionContext.messages;
+          log.warn(
+            `embedded run restored user turns from SessionManager before prompt: ` +
+              `runId=${params.runId} sessionId=${params.sessionId} ` +
+              `sessionKey=${params.sessionKey ?? "<none>"} ` +
+              `activeMessages=${activeMessageCountBeforeRefresh} ` +
+              `sessionManagerMessages=${sessionContext.messages.length}`,
+          );
+        }
       }
       if (typeof activeSession.agent.convertToLlm === "function") {
         const baseConvertToLlm = activeSession.agent.convertToLlm.bind(activeSession.agent);
@@ -1522,6 +1581,8 @@ export async function runEmbeddedAttempt(
       let prePromptMessageCount = activeSession.messages.length;
       let firstPromptMessageCount: number | undefined;
       let unwindowedContextEngineMessagesForPrecheck: AgentMessage[] | undefined;
+      let contextEnginePromptAuthority: NonNullable<AssembleResult["promptAuthority"]> =
+        "assembled";
       abortSessionForYield = () => {
         yieldAbortSettled = Promise.resolve(activeSession.abort());
       };
@@ -1686,11 +1747,19 @@ export async function runEmbeddedAttempt(
         agentDir,
         workspaceDir: effectiveWorkspace,
       });
-      const shouldUseWebSocketTransport = shouldUseOpenAIWebSocketTransport({
-        provider: params.provider,
-        modelApi: params.model.api,
-        modelBaseUrl: params.model.baseUrl,
-      });
+      const hasExplicitSseTransport = [
+        (params.streamParams as { transport?: unknown } | undefined)?.transport,
+        (params.model as { params?: { transport?: unknown } }).params?.transport,
+      ]
+        .map((value) => (typeof value === "string" ? value.trim().toLowerCase() : ""))
+        .includes("sse");
+      const shouldUseWebSocketTransport =
+        !hasExplicitSseTransport &&
+        shouldUseOpenAIWebSocketTransport({
+          provider: params.provider,
+          modelApi: params.model.api,
+          modelBaseUrl: params.model.baseUrl,
+        });
       const wsApiKey = shouldUseWebSocketTransport
         ? await resolveEmbeddedAgentApiKey({
             provider: params.provider,
@@ -2074,7 +2143,11 @@ export async function runEmbeddedAttempt(
 
         if (activeContextEngine) {
           try {
-            unwindowedContextEngineMessagesForPrecheck = activeSession.messages.slice();
+            // Snapshot before assemble: the assemble contract does not require
+            // the input array to be treated immutably, so an engine that windows
+            // history in place would otherwise leave the precheck reading
+            // already-windowed messages instead of the true pre-assembly state.
+            const preassemblyContextEngineMessagesForPrecheck = activeSession.messages.slice();
             const assembled = await assembleAttemptContextEngine({
               contextEngine: activeContextEngine,
               sessionId: params.sessionId,
@@ -2091,6 +2164,11 @@ export async function runEmbeddedAttempt(
             }
             if (assembled.messages !== activeSession.messages) {
               activeSession.agent.state.messages = assembled.messages;
+            }
+            contextEnginePromptAuthority = assembled.promptAuthority ?? "assembled";
+            if (contextEnginePromptAuthority === "preassembly_may_overflow") {
+              unwindowedContextEngineMessagesForPrecheck =
+                preassemblyContextEngineMessagesForPrecheck;
             }
             if (assembled.systemPromptAddition) {
               systemPromptText = prependSystemPromptAddition({
@@ -2126,19 +2204,6 @@ export async function runEmbeddedAttempt(
         err.name = "TimeoutError";
         return err;
       };
-      const makeAbortError = (signal: AbortSignal): Error => {
-        const reason = getAbortReason(signal);
-        // If the reason is already an Error, preserve it to keep the original message
-        // (e.g., "LLM idle timeout (<n>s): no response from model" instead of "aborted")
-        if (reason instanceof Error) {
-          const err = new Error(reason.message, { cause: reason });
-          err.name = "AbortError";
-          return err;
-        }
-        const err = reason ? new Error("aborted", { cause: reason }) : new Error("aborted");
-        err.name = "AbortError";
-        return err;
-      };
       const abortCompaction = () => {
         if (!activeSession.isCompacting) {
           return;
@@ -2170,29 +2235,8 @@ export async function runEmbeddedAttempt(
         idleTimedOut = true;
         abortRun(true, error);
       };
-      const abortable = <T>(promise: Promise<T>): Promise<T> => {
-        const signal = runAbortController.signal;
-        if (signal.aborted) {
-          return Promise.reject(makeAbortError(signal));
-        }
-        return new Promise<T>((resolve, reject) => {
-          const onAbort = () => {
-            signal.removeEventListener("abort", onAbort);
-            reject(makeAbortError(signal));
-          };
-          signal.addEventListener("abort", onAbort, { once: true });
-          promise.then(
-            (value) => {
-              signal.removeEventListener("abort", onAbort);
-              resolve(value);
-            },
-            (err) => {
-              signal.removeEventListener("abort", onAbort);
-              reject(err);
-            },
-          );
-        });
-      };
+      const abortable = <T>(promise: Promise<T>): Promise<T> =>
+        abortableWithSignal(runAbortController.signal, promise);
 
       const subscription = subscribeEmbeddedPiSession(
         buildEmbeddedSubscriptionParams({
@@ -2410,6 +2454,7 @@ export async function runEmbeddedAttempt(
           if (truncationResult.truncated) {
             preflightRecovery = {
               route: "truncate_tool_results_only",
+              source: "mid-turn",
               handled: true,
               truncatedCount: truncationResult.truncatedCount,
             };
@@ -2420,7 +2465,7 @@ export async function runEmbeddedAttempt(
               `handled=true truncatedCount=${truncationResult.truncatedCount}`,
             );
           } else {
-            preflightRecovery = { route: "compact_only" };
+            preflightRecovery = { route: "compact_only", source: "mid-turn" };
             promptError = new Error(PREEMPTIVE_OVERFLOW_ERROR_TEXT);
             promptErrorSource = "precheck";
             logMidTurnPrecheck(
@@ -2429,7 +2474,7 @@ export async function runEmbeddedAttempt(
             );
           }
         } else {
-          preflightRecovery = { route: request.route };
+          preflightRecovery = { route: request.route, source: "mid-turn" };
           promptError = new Error(PREEMPTIVE_OVERFLOW_ERROR_TEXT);
           promptErrorSource = "precheck";
           logMidTurnPrecheck(request.route);
@@ -2798,7 +2843,9 @@ export async function runEmbeddedAttempt(
 
           const preemptiveCompaction = shouldPreemptivelyCompactBeforePrompt({
             messages: activeSession.messages,
-            unwindowedMessages: unwindowedContextEngineMessagesForPrecheck,
+            ...(contextEnginePromptAuthority === "preassembly_may_overflow"
+              ? { unwindowedMessages: unwindowedContextEngineMessagesForPrecheck }
+              : {}),
             systemPrompt: systemPromptText,
             prompt: effectivePrompt,
             contextTokenBudget,

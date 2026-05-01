@@ -207,6 +207,54 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     }
   });
 
+  it("restores transcript-backed Telegram user turns before context engine assembly", async () => {
+    const fullMessages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "What model are you running?" }],
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "openai-codex/gpt-5.5" }],
+        timestamp: 2,
+      },
+      { role: "user", content: [{ type: "text", text: "UniFi code 498563" }], timestamp: 3 },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Got it. What should I do with that code?" }],
+        timestamp: 4,
+      },
+    ] as AgentMessage[];
+    const activeSessionMessages = fullMessages.filter(
+      (message) => !JSON.stringify(message).includes("498563"),
+    );
+    const seen: { assembleMessages?: AgentMessage[]; promptMessages?: unknown[] } = {};
+
+    await createContextEngineAttemptRunner({
+      contextEngine: createTestContextEngine({
+        assemble: vi.fn(async ({ messages }) => {
+          seen.assembleMessages = [...messages];
+          return { messages, estimatedTokens: 1 };
+        }),
+      }),
+      sessionKey: "agent:main:telegram:direct:8599953238",
+      tempPaths,
+      sessionMessages: fullMessages,
+      activeSessionMessages,
+      attemptOverrides: {
+        prompt: "You said it expires and you need it for network skill",
+      },
+      sessionPrompt: async (session) => {
+        seen.promptMessages = [...session.messages];
+        session.messages = [...session.messages, doneMessage];
+      },
+    });
+
+    expect(JSON.stringify(seen.assembleMessages)).toContain("UniFi code 498563");
+    expect(JSON.stringify(seen.promptMessages)).toContain("UniFi code 498563");
+  });
+
   it("marks inter-session transcriptPrompt before submitting the visible prompt", async () => {
     let seenPrompt: string | undefined;
 
@@ -321,6 +369,118 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
         }),
       ]),
     );
+  });
+
+  it("uses assembled context as the default precheck authority", async () => {
+    let sawPrompt = false;
+    const hugeHistory = "large raw history ".repeat(25_000);
+
+    const result = await createContextEngineAttemptRunner({
+      contextEngine: createTestContextEngine({
+        assemble: async () => ({
+          messages: [
+            { role: "user", content: "small assembled context", timestamp: 1 },
+          ] as AgentMessage[],
+          estimatedTokens: 8,
+        }),
+      }),
+      sessionKey,
+      tempPaths,
+      sessionMessages: [{ role: "user", content: hugeHistory, timestamp: 1 }] as AgentMessage[],
+      attemptOverrides: {
+        contextTokenBudget: 500,
+      },
+      sessionPrompt: async (session) => {
+        sawPrompt = true;
+        session.messages = [
+          ...session.messages,
+          { role: "assistant", content: "done", timestamp: 2 },
+        ];
+      },
+    });
+
+    expect(sawPrompt).toBe(true);
+    expect(result.promptError).toBeNull();
+    expect(result.promptErrorSource).toBeNull();
+    expect(hoisted.preemptiveCompactionCalls.at(-1)).not.toHaveProperty("unwindowedMessages");
+  });
+
+  it("honors context engines that opt into preassembly overflow authority", async () => {
+    let sawPrompt = false;
+    const hugeHistory = "large raw history ".repeat(25_000);
+
+    const result = await createContextEngineAttemptRunner({
+      contextEngine: createTestContextEngine({
+        assemble: async () => ({
+          messages: [
+            { role: "user", content: "small assembled context", timestamp: 1 },
+          ] as AgentMessage[],
+          estimatedTokens: 8,
+          promptAuthority: "preassembly_may_overflow",
+        }),
+      }),
+      sessionKey,
+      tempPaths,
+      sessionMessages: [{ role: "user", content: hugeHistory, timestamp: 1 }] as AgentMessage[],
+      attemptOverrides: {
+        contextTokenBudget: 500,
+      },
+      sessionPrompt: async (session) => {
+        sawPrompt = true;
+        session.messages = [
+          ...session.messages,
+          { role: "assistant", content: "done", timestamp: 2 },
+        ];
+      },
+    });
+
+    expect(sawPrompt).toBe(false);
+    expect(result.promptErrorSource).toBe("precheck");
+    expect(result.preflightRecovery?.route).toBe("compact_only");
+    expect(hoisted.preemptiveCompactionCalls.at(-1)).toHaveProperty("unwindowedMessages");
+  });
+
+  it("snapshots pre-assembly messages before assemble even when the engine windows in place", async () => {
+    const hugeHistory = "large raw history ".repeat(25_000);
+    const preassemblyMarker = { role: "user", content: hugeHistory, timestamp: 1 } as AgentMessage;
+
+    await createContextEngineAttemptRunner({
+      contextEngine: createTestContextEngine({
+        assemble: async ({ messages }: { messages: AgentMessage[] }) => {
+          // Simulate an engine that windows the input array IN PLACE.
+          // The assemble contract does not require immutability, so the
+          // runner must have already snapshotted before calling us.
+          messages.length = 0;
+          messages.push({ role: "user", content: "windowed", timestamp: 2 } as AgentMessage);
+          return {
+            messages: [
+              { role: "user", content: "small assembled context", timestamp: 1 },
+            ] as AgentMessage[],
+            estimatedTokens: 8,
+            promptAuthority: "preassembly_may_overflow",
+          };
+        },
+      }),
+      sessionKey,
+      tempPaths,
+      sessionMessages: [preassemblyMarker],
+      attemptOverrides: {
+        contextTokenBudget: 500,
+      },
+      sessionPrompt: async (session) => {
+        session.messages = [
+          ...session.messages,
+          { role: "assistant", content: "done", timestamp: 3 },
+        ];
+      },
+    });
+
+    const lastCall = hoisted.preemptiveCompactionCalls.at(-1);
+    expect(lastCall).toHaveProperty("unwindowedMessages");
+    const unwindowed = (lastCall as { unwindowedMessages?: AgentMessage[] }).unwindowedMessages;
+    // The snapshot must reflect the true pre-assembly state, not the in-place
+    // windowed array that assemble mutated.
+    expect(unwindowed).toEqual([preassemblyMarker]);
   });
 
   it("keeps gateway model runs independent from agent context and session history", async () => {
@@ -960,7 +1120,7 @@ describe("runEmbeddedAttempt context engine mid-turn precheck integration", () =
     });
 
     expect(result.promptErrorSource).toBe("precheck");
-    expect(result.preflightRecovery).toEqual({ route: "compact_only" });
+    expect(result.preflightRecovery).toEqual({ route: "compact_only", source: "mid-turn" });
     expect(result.messagesSnapshot).toEqual([seedMessage]);
   });
 });

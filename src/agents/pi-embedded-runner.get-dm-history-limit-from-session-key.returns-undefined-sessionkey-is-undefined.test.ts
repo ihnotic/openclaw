@@ -27,6 +27,24 @@ describe("getDmHistoryLimitFromSessionKey", () => {
     } as OpenClawConfig;
     expect(getDmHistoryLimitFromSessionKey("agent:main:telegram:dm:123", config)).toBe(10);
   });
+  it("returns dmHistoryLimit for account-scoped agent direct session keys", () => {
+    const config = {
+      channels: {
+        telegram: {
+          dmHistoryLimit: 30,
+          dms: {
+            "8599953238": { historyLimit: 45 },
+          },
+        },
+      },
+    } as OpenClawConfig;
+    expect(
+      getDmHistoryLimitFromSessionKey("agent:main:telegram:default:direct:8599953238", config),
+    ).toBe(45);
+    expect(
+      getDmHistoryLimitFromSessionKey("agent:main:telegram:tasks:direct:0000000000", config),
+    ).toBe(30);
+  });
   it("strips thread suffix from dm session keys", () => {
     const config = {
       channels: { telegram: { dmHistoryLimit: 10, dms: { "123": { historyLimit: 7 } } } },

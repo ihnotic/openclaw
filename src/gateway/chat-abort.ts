@@ -205,16 +205,22 @@ export function abortChatRunsForSessionKey(
     stopReason?: string;
   },
 ): { aborted: boolean; runIds: string[] } {
-  const { sessionKey, stopReason } = params;
   const runIds: string[] = [];
-  for (const [runId, active] of ops.chatAbortControllers) {
-    if (active.sessionKey !== sessionKey) {
+  for (const [runId, active] of [...ops.chatAbortControllers]) {
+    if (active.sessionKey !== params.sessionKey) {
       continue;
     }
-    const res = abortChatRunById(ops, { runId, sessionKey, stopReason });
-    if (res.aborted) {
+    const result = abortChatRunById(ops, {
+      runId,
+      sessionKey: params.sessionKey,
+      stopReason: params.stopReason,
+    });
+    if (result.aborted) {
       runIds.push(runId);
     }
   }
-  return { aborted: runIds.length > 0, runIds };
+  return {
+    aborted: runIds.length > 0,
+    runIds,
+  };
 }
