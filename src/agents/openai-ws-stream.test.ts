@@ -1787,7 +1787,7 @@ describe("planOpenAIWebSocketRequestPayload", () => {
     const previousRequest: ResponseCreateEvent = {
       type: "response.create",
       model: "gpt-5.4",
-      store: false,
+      store: true,
       instructions: "You are helpful.",
       input: previousInputItems,
     };
@@ -1797,7 +1797,7 @@ describe("planOpenAIWebSocketRequestPayload", () => {
     const fullPayload: ResponseCreateEvent = {
       type: "response.create",
       model: "gpt-5.4",
-      store: false,
+      store: true,
       instructions: "You are helpful.",
       input: [
         ...previousInputItems,
@@ -1816,6 +1816,39 @@ describe("planOpenAIWebSocketRequestPayload", () => {
     expect(plan.mode).toBe("incremental");
     expect(plan.payload.previous_response_id).toBe("resp_prev");
     expect(plan.payload.input).toEqual([{ type: "message", role: "user", content: "Next" }]);
+  });
+
+  it("uses full context when the provider response store is disabled", () => {
+    const previousInputItems: InputItem[] = [{ type: "message", role: "user", content: "Hello" }];
+    const previousRequest: ResponseCreateEvent = {
+      type: "response.create",
+      model: "gpt-5.4",
+      store: false,
+      instructions: "You are helpful.",
+      input: previousInputItems,
+    };
+    const previousResponseInputItems: InputItem[] = [
+      { type: "message", role: "assistant", content: "Hi" },
+    ];
+    const fullPayload: ResponseCreateEvent = {
+      ...previousRequest,
+      input: [
+        ...previousInputItems,
+        ...previousResponseInputItems,
+        { type: "message", role: "user", content: "Next" },
+      ],
+    };
+
+    const plan = planOpenAIWebSocketRequestPayload({
+      fullPayload,
+      previousRequestPayload: previousRequest,
+      previousResponseId: "resp_prev",
+      previousResponseInputItems,
+    });
+
+    expect(plan.mode).toBe("full_context");
+    expect(plan.payload.previous_response_id).toBeUndefined();
+    expect(plan.payload.input).toEqual(fullPayload.input);
   });
 
   it("falls back to full context when non-input fields differ", () => {
@@ -2937,7 +2970,7 @@ describe("createOpenAIWebSocketStreamFn", () => {
     }
   });
 
-  it("tracks previous_response_id across turns (incremental send)", async () => {
+  it("uses full context across turns when Responses store is disabled", async () => {
     const sessionId = "sess-incremental";
     const streamFn = createOpenAIWebSocketStreamFn("sk-test", sessionId);
 
@@ -2968,7 +3001,7 @@ describe("createOpenAIWebSocketStreamFn", () => {
     manager.simulateEvent({ type: "response.completed", response: turn1Response });
     await done1;
 
-    // ── Turn 2: incremental (tool results only) ───────────────────────────
+    // ── Turn 2: full context because store:false cannot rely on response-chain deltas ────────
     const ctx2 = {
       systemPrompt: "You are helpful.",
       messages: [
@@ -2998,20 +3031,18 @@ describe("createOpenAIWebSocketStreamFn", () => {
     });
     await done2;
 
-    // Turn 2 should have sent previous_response_id and only tool results
+    // Turn 2 should replay the full context without previous_response_id.
     expect(manager.sentEvents).toHaveLength(2);
     const sent2 = manager.sentEvents[1] as {
       previous_response_id?: string;
       input: Array<{ type: string }>;
     };
-    expect(sent2.previous_response_id).toBe("resp_turn1");
-    // Input should only contain tool results, not the full history
+    expect(sent2.previous_response_id).toBeUndefined();
     const inputTypes = (sent2.input ?? []).map((i) => i.type);
-    expect(inputTypes.every((t) => t === "function_call_output")).toBe(true);
-    expect(inputTypes).toHaveLength(1);
+    expect(inputTypes).toEqual(["message", "function_call", "function_call_output"]);
   });
 
-  it("sends only a follow-up user message when the full context is a strict extension", async () => {
+  it("sends full context for a follow-up user message when Responses store is disabled", async () => {
     const sessionId = "sess-user-delta";
     const streamFn = createOpenAIWebSocketStreamFn("sk-test", sessionId);
 
@@ -3068,11 +3099,15 @@ describe("createOpenAIWebSocketStreamFn", () => {
       previous_response_id?: string;
       input: Array<{ type: string; role?: string; content?: unknown }>;
     };
-    expect(sent2.previous_response_id).toBe("resp_turn1_text");
-    expect(sent2.input).toEqual([{ type: "message", role: "user", content: "What can you do?" }]);
+    expect(sent2.previous_response_id).toBeUndefined();
+    expect(sent2.input).toEqual([
+      { type: "message", role: "user", content: "Hello" },
+      { type: "message", role: "assistant", content: "Hi there." },
+      { type: "message", role: "user", content: "What can you do?" },
+    ]);
   });
 
-  it("uses an empty incremental payload when replay context exactly matches the response chain", async () => {
+  it("replays the response chain when Responses store is disabled", async () => {
     const sessionId = "sess-full-context-replay";
     const streamFn = createOpenAIWebSocketStreamFn("sk-test", sessionId);
 
@@ -3150,8 +3185,8 @@ describe("createOpenAIWebSocketStreamFn", () => {
       previous_response_id?: string;
       input: Array<{ type: string; id?: string; call_id?: string }>;
     };
-    expect(sent2.previous_response_id).toBe("resp_turn1_reasoning");
-    expect(sent2.input).toEqual([]);
+    expect(sent2.previous_response_id).toBeUndefined();
+    expect(sent2.input.map((item) => item.type)).toEqual(["message", "reasoning", "function_call"]);
   });
 
   it("replays encrypted-only reasoning when websocket must send full context", async () => {

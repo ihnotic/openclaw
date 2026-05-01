@@ -89,8 +89,10 @@ export function planOpenAIWebSocketRequestPayload(params: {
     ? params.previousRequestPayload.input
     : [];
   const previousResponseInputItems = params.previousResponseInputItems ?? [];
+  const usesProviderResponseStore = params.fullPayload.store !== false;
 
   if (
+    usesProviderResponseStore &&
     params.previousResponseId &&
     params.previousRequestPayload &&
     payloadFieldsMatch(params.fullPayload, params.previousRequestPayload)

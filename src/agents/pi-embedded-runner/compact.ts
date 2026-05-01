@@ -979,7 +979,12 @@ export async function compactEmbeddedPiSessionDirect(
                 ...(model.api === "openai-responses" ||
                 model.api === "azure-openai-responses" ||
                 model.api === "openai-codex-responses"
-                  ? { missingToolResultText: "aborted" }
+                  ? {
+                      missingToolResultPolicy: transcriptPolicy.allowSyntheticToolResults
+                        ? "synthesize"
+                        : "drop_assistant_turn",
+                      missingToolResultText: "aborted",
+                    }
                   : {}),
               })
             : truncated;

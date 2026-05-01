@@ -1904,7 +1904,16 @@ export async function runEmbeddedAttempt(
           // Strip orphaned reasoning blocks first, then fix function-call
           // pairing — matches the call order in google.ts.
           const reasoningSanitized = downgradeOpenAIReasoningBlocks(messages as AgentMessage[]);
-          const sanitized = downgradeOpenAIFunctionCallReasoningPairs(reasoningSanitized);
+          const paired = transcriptPolicy.repairToolUseResultPairing
+            ? sanitizeToolUseResultPairing(reasoningSanitized, {
+                erroredAssistantResultPolicy: "drop",
+                missingToolResultPolicy: transcriptPolicy.allowSyntheticToolResults
+                  ? "synthesize"
+                  : "drop_assistant_turn",
+                missingToolResultText: "aborted",
+              })
+            : reasoningSanitized;
+          const sanitized = downgradeOpenAIFunctionCallReasoningPairs(paired);
           if (sanitized === messages) {
             return inner(model, context, options);
           }
@@ -2063,7 +2072,14 @@ export async function runEmbeddedAttempt(
           const limited = transcriptPolicy.repairToolUseResultPairing
             ? sanitizeToolUseResultPairing(truncated, {
                 erroredAssistantResultPolicy: "drop",
-                ...(isOpenAIResponsesApi ? { missingToolResultText: "aborted" } : {}),
+                ...(isOpenAIResponsesApi
+                  ? {
+                      missingToolResultPolicy: transcriptPolicy.allowSyntheticToolResults
+                        ? "synthesize"
+                        : "drop_assistant_turn",
+                      missingToolResultText: "aborted",
+                    }
+                  : {}),
               })
             : truncated;
           cacheTrace?.recordStage("session:limited", { messages: limited });
